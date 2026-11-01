@@ -1,3 +1,5 @@
+
 [build]
-  publish = "."
+  command = "mkdir -p public && cp index.html sw.js manifest.webmanifest jb-icon-192.png jb-icon-512.png public/"
+  publish = "public"
   functions = "netlify/functions"
