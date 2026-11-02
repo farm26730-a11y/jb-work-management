@@ -1419,7 +1419,7 @@ async function jbOpenReportTask(id,employeeId){
    const done=task.completed_at?new Date(task.completed_at):new Date();
    archiveMonth=done.toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'}).slice(0,7);
    archiveDepartment='all';archiveDay='';view='archive';mobileMoreOpen=false;
-   await loadArchive();await jbArchiveToggleDetail(id);
+   await loadArchive();await jbArchiveToggleDetail(id,true);
    if(archiveDetailRecord?.id===id&&!archiveDetailError)await jbAutoAcknowledgeTask(id);
    return;
  }
@@ -2479,8 +2479,8 @@ async function exportCompletedTasksCsv(mode="month"){
 }
 
 // V1.3 수정: 완료 업무 상세 조회 (읽기 전용, 서버에서 개별 조회)
-async function jbArchiveToggleDetail(id){
- if(archiveDetailId===id){archiveDetailId=null;archiveDetailRecord=null;archiveDetailImages=[];dashboard();return;}
+async function jbArchiveToggleDetail(id,forceOpen=false){
+ if(archiveDetailId===id&&!forceOpen){archiveDetailId=null;archiveDetailRecord=null;archiveDetailImages=[];dashboard();return;}
  archiveDetailId=id;archiveDetailRecord=null;archiveDetailComments=[];archiveDetailHistory=[];archiveDetailImages=[];archiveDetailError='';archiveDetailLoading=true;dashboard();
  try{
   const taskResponse=await supa.from('jb_tasks').select('id,title,description,status,assignee_id,created_by,department_id,due_date,completed_at,created_at').eq('id',id).eq('status','completed').single();
@@ -2610,6 +2610,31 @@ function jbInboxItems(){
     items.push({id:'pending:'+r.id,at:r.created_at||r.start_date,type:'승인 대기',title:(applicant?.name||'직원')+' · 승인 대기',detail:(r.start_date||'')+' ~ '+(r.end_date||''),target:'leaves'});
   }
  }
+  // V1.4: Report request notifications and acknowledgement results.
+  const roleById=new Map((records.employeeRoles||[]).map(e=>[e.id,e]));
+  for(const r of records.reportRequests||[]){
+    const mine=r.requester_id===profile.id;
+    const source=roleById.get(r.requester_id);
+    const directed=profile.app_role==='owner'
+      ?(r.target_owner===true||source?.app_role==='manager')
+      :profile.app_role==='manager'
+        ?(r.target_owner!==true&&source?.app_role==='staff'&&source?.department_id===profile.department_id)
+        :false;
+    if(!mine&&!directed)continue;
+    const task=(records.tasks||[]).find(t=>t.id===r.task_id);
+    const writer=employees.get(r.requester_id);
+    if(mine&&r.acknowledged_at){
+      items.push({id:'report-done:'+r.id,at:r.acknowledged_at,type:'보고 확인 완료',
+       title:(task?.title||'업무')+' · 확인 완료',
+       detail:'확인자: '+(employees.get(r.acknowledged_by)?.name||'상급자')+' · '+(r.note||''),
+       target:'home',taskId:r.task_id,employeeId:task?.assignee_id||profile.id});
+    }else if(directed&&!r.acknowledged_at&&!mine){
+      items.push({id:'report-pending:'+r.id,at:r.created_at,type:'업무 확인 요청',
+       title:(task?.title||'업무')+' · '+(writer?.name||'직원')+' 보고',
+       detail:r.note||'확인할 업무 보고가 있습니다.',
+       target:'home',taskId:r.task_id,employeeId:task?.assignee_id||r.requester_id});
+    }
+  }
   // V30: 승인된 휴무의 변경/취소 요청과 결과도 앱 내부 알림에 포함.
   for(const c of records.leaveChanges||[]){
     const applicant=employees.get(c.employee_id);
@@ -2675,7 +2700,7 @@ function jbInboxPage(){
   const unreadItem=!seen[x.id];
   return dateHead+`<div class="jb-inbox-entry ${unreadItem?'jb-unread':''}"><div class="srv-row" style="justify-content:space-between;align-items:flex-start"><b class="jb-inbox-title">${safe(x.type)} · ${safe(x.title)}</b><span class="srv-pill">${unreadItem?'미확인':'확인됨'}</span></div><div class="srv-muted" style="font-size:12px;margin:4px 0">${safe(String(x.at).replace('T',' ').slice(0,16))}</div><p style="white-space:pre-wrap;overflow-wrap:anywhere">${safe(x.detail)}</p><div class="srv-row"><button type="button" class="alt srv-inbox-open" data-inbox-id="${safe(x.id)}">관련 화면 보기</button>${unreadItem?`<button type="button" class="alt srv-inbox-read" data-inbox-id="${safe(x.id)}">확인 처리</button>`:''}</div></div>`;
  }).join('');
- return `<section class="srv-home-section"><h2>🔔 알림센터</h2>${jbSeenSyncWarn?`<p class="srv-error">${safe(jbSeenSyncWarn)}</p>`:""}<div class="jb-push-panel"><b>갤럭시 알림 수신 준비</b><p class="srv-muted">푸시 발송 서버가 설정되면 이 기기에서 알림을 받을 수 있습니다. 알림 권한을 허용하고 기기 등록을 진행하세요.</p><label class="srv-muted">VAPID 웹 푸시 공개키 (서버 설정 시 자동으로 가져옴) <input id="jbVapidPublic" type="text" autocomplete="off" placeholder="공개키를 입력" value="${safe(localStorage.getItem('jb_push_vapid_public')||'')}"></label><div class="srv-row"><button type="button" id="jbPushEnable">이 휴대폰 알림 등록</button></div><p class="srv-muted" id="jbPushStatus" aria-live="polite"></p></div><p class="srv-muted">업무 배정·댓글·근태 승인 관련 알림입니다. 미확인 알림을 먼저 보여 주며, 확인 기록은 Supabase를 통해 동기화합니다.</p><div class="jb-inbox-tools"><button type="button" class="alt" data-inbox-filter="all">전체 ${all.length}건</button><button type="button" class="alt" data-inbox-filter="unread">미확인 ${unread}건</button><button type="button" class="alt" id="srvInboxReadAll">모두 확인</button><button type="button" class="alt" id="srvInboxReload">서버 새로고침</button></div>${ordered.length?rows:'<p class="srv-muted">표시할 알림이 없습니다.</p>'}${ordered.length>30?'<p class="srv-muted">최근/미확인 순으로 30건만 표시합니다. 전체 기록을 확인하려면 서버 조회 범위를 확장해야 합니다.</p>':''}</section>`;
+ return `<section class="srv-home-section"><h2>🔔 알림센터</h2>${jbSeenSyncWarn?`<p class="srv-error">${safe(jbSeenSyncWarn)}</p>`:""}<div class="jb-push-panel"><b>갤럭시 알림 수신 준비</b><p class="srv-muted">푸시 발송 서버가 설정되면 이 기기에서 알림을 받을 수 있습니다. 알림 권한을 허용하고 기기 등록을 진행하세요.</p><label class="srv-muted">VAPID 웹 푸시 공개키 (서버 설정 시 자동으로 가져옴) <input id="jbVapidPublic" type="text" autocomplete="off" placeholder="공개키를 입력" value="${safe(localStorage.getItem('jb_push_vapid_public')||'')}"></label><div class="srv-row"><button type="button" id="jbPushEnable">이 휴대폰 알림 등록</button></div><p class="srv-muted" id="jbPushStatus" aria-live="polite"></p></div><p class="srv-muted">업무 배정·보고 요청·보고 확인 완료·댓글·근태 승인 관련 알림입니다. 미확인 알림을 먼저 보여 주며, 확인 기록은 Supabase를 통해 동기화합니다.</p><div class="jb-inbox-tools"><button type="button" class="alt" data-inbox-filter="all">전체 ${all.length}건</button><button type="button" class="alt" data-inbox-filter="unread">미확인 ${unread}건</button><button type="button" class="alt" id="srvInboxReadAll">모두 확인</button><button type="button" class="alt" id="srvInboxReload">서버 새로고침</button></div>${ordered.length?rows:'<p class="srv-muted">표시할 알림이 없습니다.</p>'}${ordered.length>30?'<p class="srv-muted">최근/미확인 순으로 30건만 표시합니다. 전체 기록을 확인하려면 서버 조회 범위를 확장해야 합니다.</p>':''}</section>`;
 }
 document.addEventListener('click',event=>{
  if(event.target.closest('#jbPushEnable'))jbPushEnable();
@@ -2757,7 +2782,7 @@ function dashboard(){
  const inboxReload=shell.querySelector('#srvInboxReload');if(inboxReload)inboxReload.onclick=loadData;
  shell.querySelectorAll('[data-inbox-filter]').forEach(b=>b.onclick=()=>{noticeInboxFilter=b.dataset.inboxFilter;dashboard()});
  shell.querySelectorAll('.srv-inbox-read').forEach(b=>b.onclick=()=>jbInboxMark([b.dataset.inboxId]));
- shell.querySelectorAll('.srv-inbox-open').forEach(b=>b.onclick=()=>{const item=jbInboxItems().find(x=>x.id===b.dataset.inboxId);if(!item)return;const seen=jbInboxSeen();seen[item.id]=Date.now();try{localStorage.setItem(jbInboxKey(),JSON.stringify(seen))}catch(_){}view=item.target;if(item.taskId){homeSelectedEmployee=item.employeeId;homeSelectedTask=item.taskId;openDept=records.employees.find(e=>e.id===item.employeeId)?.department_id||openDept;}mobileMoreOpen=false;dashboard();if(item.taskId)void loadTaskPhoto(item.taskId);});
+ shell.querySelectorAll('.srv-inbox-open').forEach(b=>b.onclick=async()=>{const item=jbInboxItems().find(x=>x.id===b.dataset.inboxId);if(!item)return;await jbInboxMark([item.id]);if(item.taskId){await jbOpenReportTask(item.taskId,item.employeeId);return;}view=item.target;mobileMoreOpen=false;dashboard();});
  const reportCsv=shell.querySelector('#srvReportCsv');if(reportCsv)reportCsv.onclick=downloadReportCsv;
  const moreBtn=shell.querySelector('#srvMobileMore');if(moreBtn)moreBtn.onclick=()=>{mobileMoreOpen=!mobileMoreOpen;dashboard()};
  const eventsLink=shell.querySelector('#srvHomeEvents');if(eventsLink)eventsLink.onclick=()=>{view='events';dashboard()};
