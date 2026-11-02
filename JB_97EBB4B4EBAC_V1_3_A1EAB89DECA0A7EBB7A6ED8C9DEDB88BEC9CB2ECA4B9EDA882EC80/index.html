@@ -1361,7 +1361,7 @@ function jbReportTasks(){
 // V1.4: Keep the sender's pending-request count synchronized with reviewer decisions.
 let jbReportSyncBusy=false;
 async function jbSyncReportRequests(){
- if(!supa||!profile||busy||jbReportSyncBusy||document.hidden||view!=='home')return;
+ if(!supa||!profile||busy||jbReportSyncBusy||document.hidden||!['home','inbox'].includes(view))return;
  const active=document.activeElement;
  if(active&&shell.contains(active)&&active.matches('input,textarea,select,[contenteditable="true"]'))return;
  jbReportSyncBusy=true;
@@ -1370,8 +1370,9 @@ async function jbSyncReportRequests(){
    .select('id,task_id,requester_id,note,created_at,acknowledged_at,acknowledged_by,target_owner')
    .order('created_at',{ascending:false}).limit(1000);
   if(error)throw error;
-  const previous=(records.reportRequests||[]).filter(r=>!r.acknowledged_at).map(r=>r.id).sort().join(',');
-  const current=(data||[]).filter(r=>!r.acknowledged_at).map(r=>r.id).sort().join(',');
+  const fingerprint=rows=>rows.map(r=>[r.id,r.acknowledged_at||'',r.acknowledged_by||'',r.note||''].join(':')).sort().join('|');
+  const previous=fingerprint(records.reportRequests||[]);
+  const current=fingerprint(data||[]);
   records.reportRequests=data||[];
   if(previous!==current)dashboard();
  }catch(e){console.warn('JB report request sync:',String(e.message||e));}
@@ -1379,13 +1380,13 @@ async function jbSyncReportRequests(){
 }
 setInterval(()=>{void jbSyncReportRequests()},15000);
 function jbPendingReportRequests(){
- const roles=new Map((records.employeeRoles||[]).map(e=>[e.id,e.app_role]));
- return (records.reportRequests||[]).filter(r=>!r.acknowledged_at&&(profile.app_role==='staff'?r.requester_id===profile.id:profile.app_role==='owner'?(r.target_owner===true||roles.get(r.requester_id)==='manager'):(r.target_owner!==true&&roles.get(r.requester_id)==='staff')));
+ const roles=new Map((records.employeeRoles||[]).map(e=>[e.id,e]));
+ return (records.reportRequests||[]).filter(r=>!r.acknowledged_at&&(profile.app_role==='staff'?r.requester_id===profile.id:profile.app_role==='owner'?(r.target_owner===true||roles.get(r.requester_id)?.app_role==='manager'):(r.target_owner!==true&&roles.get(r.requester_id)?.app_role==='staff'&&roles.get(r.requester_id)?.department_id===profile.department_id)));
 }
 function jbCanAcknowledgeRequest(r){
  if(!r||r.acknowledged_at||r.requester_id===profile.id)return false;
  const employee=(records.employeeRoles||[]).find(e=>e.id===r.requester_id);
- return profile.app_role==='owner'?(r.target_owner===true||employee?.app_role==='manager'):(profile.app_role==='manager'&&r.target_owner!==true&&employee?.app_role==='staff');
+ return profile.app_role==='owner'?(r.target_owner===true||employee?.app_role==='manager'):(profile.app_role==='manager'&&r.target_owner!==true&&employee?.app_role==='staff'&&employee?.department_id===profile.department_id);
 }
 async function jbAutoAcknowledgeTask(taskId){
  const requests=(records.reportRequests||[]).filter(r=>r.task_id===taskId&&jbCanAcknowledgeRequest(r));
@@ -2700,7 +2701,7 @@ function jbInboxPage(){
   const unreadItem=!seen[x.id];
   return dateHead+`<div class="jb-inbox-entry ${unreadItem?'jb-unread':''}"><div class="srv-row" style="justify-content:space-between;align-items:flex-start"><b class="jb-inbox-title">${safe(x.type)} · ${safe(x.title)}</b><span class="srv-pill">${unreadItem?'미확인':'확인됨'}</span></div><div class="srv-muted" style="font-size:12px;margin:4px 0">${safe(String(x.at).replace('T',' ').slice(0,16))}</div><p style="white-space:pre-wrap;overflow-wrap:anywhere">${safe(x.detail)}</p><div class="srv-row"><button type="button" class="alt srv-inbox-open" data-inbox-id="${safe(x.id)}">관련 화면 보기</button>${unreadItem?`<button type="button" class="alt srv-inbox-read" data-inbox-id="${safe(x.id)}">확인 처리</button>`:''}</div></div>`;
  }).join('');
- return `<section class="srv-home-section"><h2>🔔 알림센터</h2>${jbSeenSyncWarn?`<p class="srv-error">${safe(jbSeenSyncWarn)}</p>`:""}<div class="jb-push-panel"><b>갤럭시 알림 수신 준비</b><p class="srv-muted">푸시 발송 서버가 설정되면 이 기기에서 알림을 받을 수 있습니다. 알림 권한을 허용하고 기기 등록을 진행하세요.</p><label class="srv-muted">VAPID 웹 푸시 공개키 (서버 설정 시 자동으로 가져옴) <input id="jbVapidPublic" type="text" autocomplete="off" placeholder="공개키를 입력" value="${safe(localStorage.getItem('jb_push_vapid_public')||'')}"></label><div class="srv-row"><button type="button" id="jbPushEnable">이 휴대폰 알림 등록</button></div><p class="srv-muted" id="jbPushStatus" aria-live="polite"></p></div><p class="srv-muted">업무 배정·보고 요청·보고 확인 완료·댓글·근태 승인 관련 알림입니다. 미확인 알림을 먼저 보여 주며, 확인 기록은 Supabase를 통해 동기화합니다.</p><div class="jb-inbox-tools"><button type="button" class="alt" data-inbox-filter="all">전체 ${all.length}건</button><button type="button" class="alt" data-inbox-filter="unread">미확인 ${unread}건</button><button type="button" class="alt" id="srvInboxReadAll">모두 확인</button><button type="button" class="alt" id="srvInboxReload">서버 새로고침</button></div>${ordered.length?rows:'<p class="srv-muted">표시할 알림이 없습니다.</p>'}${ordered.length>30?'<p class="srv-muted">최근/미확인 순으로 30건만 표시합니다. 전체 기록을 확인하려면 서버 조회 범위를 확장해야 합니다.</p>':''}</section>`;
+ return `<section class="srv-home-section"><h2>🔔 알림센터</h2>${jbSeenSyncWarn?`<p class="srv-error">${safe(jbSeenSyncWarn)}</p>`:""}<div class="jb-push-panel"><b>휴대전화 푸시 알림</b><p class="srv-muted">알림 권한을 허용한 뒤 이 휴대전화에 로그인 계정의 알림을 등록합니다.</p><div class="srv-row"><button type="button" id="jbPushEnable">이 휴대폰 알림 등록</button></div><p class="srv-muted" id="jbPushStatus" aria-live="polite"></p></div><p class="srv-muted">업무 배정·보고 요청·보고 확인 완료·댓글·근태 승인 관련 알림입니다. 미확인 알림을 먼저 보여 주며, 확인 기록은 Supabase를 통해 동기화합니다.</p><div class="jb-inbox-tools"><button type="button" class="alt" data-inbox-filter="all">전체 ${all.length}건</button><button type="button" class="alt" data-inbox-filter="unread">미확인 ${unread}건</button><button type="button" class="alt" id="srvInboxReadAll">모두 확인</button><button type="button" class="alt" id="srvInboxReload">서버 새로고침</button></div>${ordered.length?rows:'<p class="srv-muted">표시할 알림이 없습니다.</p>'}${ordered.length>30?'<p class="srv-muted">최근/미확인 순으로 30건만 표시합니다. 전체 기록을 확인하려면 서버 조회 범위를 확장해야 합니다.</p>':''}</section>`;
 }
 document.addEventListener('click',event=>{
  if(event.target.closest('#jbPushEnable'))jbPushEnable();
