@@ -1151,7 +1151,7 @@ async function loadData(){
  let tasksBatch=[],tasksLoadError='';
  for(let offset=0;offset<tasksMaximum;offset+=tasksQuerySize){
   const {data,error}=await supa.from('jb_tasks')
-    .select('id,title,description,status,assignee_id,department_id,created_by,due_date,created_at')
+    .select('id,title,description,status,assignee_id,department_id,created_by,due_date,created_at,completed_at')
     .order('created_at',{ascending:false}).order('id',{ascending:false})
     .range(offset,offset+tasksQuerySize-1);
   if(error){tasksLoadError='업무 목록 조회가 중단되었습니다 ('+(offset+1)+'번째부터): '+error.message+' · 현재 표시된 업무는 일부이며 서버 새로고침이 필요합니다.';break;}
@@ -1365,7 +1365,28 @@ async function jbAcknowledgeReport(id){
  if(!confirm('확인 처리하면 미확인 건수가 줄어들고 처리 이력이 저장됩니다. 확인하시겠습니까?'))return;
  const {error}=await supa.rpc(req.target_owner?'jb_acknowledge_owner_task_report_v14':'jb_acknowledge_task_report',{p_request_id:id});
  if(error)return alert('확인 처리 실패: '+error.message);
- await loadData();
+ const verify=await supa.from('jb_task_report_requests').select('id,acknowledged_at').eq('id',id).maybeSingle();
+ if(verify.error){await loadData();return alert('확인 처리 상태 조회 실패: '+verify.error.message);}
+ if(!verify.data?.acknowledged_at){await loadData();return alert('확인 처리가 저장되지 않았습니다. 서버 확인 함수와 권한을 점검해 주세요.');}
+ records.reportRequests=(records.reportRequests||[]).filter(x=>x.id!==id);
+ dashboard();await loadData();
+}
+async function jbOpenReportTask(id,employeeId){
+ if(!id)return alert('업무 ID가 없습니다.');
+ let task=(records.tasks||[]).find(t=>t.id===id);
+ if(!task){const result=await supa.from('jb_tasks').select('id,status,assignee_id,department_id,completed_at').eq('id',id).maybeSingle();if(result.error)return alert('업무 조회 실패: '+result.error.message);task=result.data;}
+ if(!task)return alert('업무를 찾을 수 없습니다.');
+ if(task.status==='completed'){
+   const done=task.completed_at?new Date(task.completed_at):new Date();
+   archiveMonth=done.toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'}).slice(0,7);
+   archiveDepartment='all';archiveDay='';view='archive';mobileMoreOpen=false;
+   await loadArchive();await jbArchiveToggleDetail(id);return;
+ }
+ view='home';openDept=task.department_id||'';homeSelectedEmployee=task.assignee_id||employeeId;
+ homeSelectedTask=id;mobileMoreOpen=false;dashboard();
+ const detail=shell.querySelector('.srv-home-task-detail[data-task-id="'+id+'"]');
+ if(detail)detail.scrollIntoView({behavior:'smooth',block:'center'});
+ else alert('해당 업무가 홈 상세 목록에 표시되지 않았습니다.');
 }
 function jbReportPanel(){
  const my=jbReportTasks(),today=localDay(),requests=jbPendingReportRequests();
@@ -2472,7 +2493,8 @@ function archivePage(){
   const day=`${month}-${String(d).padStart(2,'0')}`;
   cells.push(`<button type="button" class="srv-archive-day ${archiveDay===day?'chosen':''}" data-archive-day="${day}" style="min-height:53px;border:1px solid #dde9e2;border-radius:10px;background:${archiveDay===day?'#d7f1e1':'#fff'};color:#22513a">${d}<small style="display:block;font-size:11px">${counts[day]||0}건</small></button>`);
  }
- const shown=archiveDay?archiveRows.filter(t=>t.completed_at&&new Date(t.completed_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})===archiveDay):archiveRows;
+ const baseShown=archiveDay?archiveRows.filter(t=>t.completed_at&&new Date(t.completed_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})===archiveDay):archiveRows;
+ const shown=archiveDetailRecord&&archiveDetailRecord.status==='completed'&&!baseShown.some(t=>t.id===archiveDetailRecord.id)?[archiveDetailRecord,...baseShown]:baseShown;
  return `<div class="srv-row"><label style="margin:0">조회 월 <input type="month" id="srvArchiveMonth" value="${safe(month)}" style="max-width:210px"></label><label style="margin:0">부서 <select id="srvArchiveDept"><option value="all" ${archiveDepartment==='all'?'selected':''}>전체 부서</option>${(records.departments||[]).map(d=>`<option value="${safe(d.id)}" ${archiveDepartment===d.id?'selected':''}>${safe(d.name)}</option>`).join('')}</select></label><button type="button" class="alt" id="srvArchiveReload">다시 조회</button><button type="button" class="alt" id="srvArchiveAll">월 전체 보기</button><button type="button" class="alt" data-srv-archive-export="month" ${archiveLoading||archiveExportBusy?'disabled':''}>⬇ 월 전체 CSV 저장</button><button type="button" class="alt" data-srv-archive-export="day" ${archiveLoading||archiveExportBusy||!archiveDay?'disabled':''}>⬇ 선택 날짜 CSV 저장</button></div><p class="srv-muted">완료 시각 기준 ${safe(month)} · 달력 조회 ${Object.values(archiveDayCounts).reduce((a,b)=>a+b,0)}건 · 목록 최대 ${archiveRows.length}건. 날짜를 눌러 선택하면 날짜별 CSV 버튼이 활성화됩니다.</p>${archiveError?`<p class="srv-error">${safe(archiveError)}</p>`:''}${archiveTruncated?'<p class="srv-note">달력 날짜별 건수는 월 전체 조회 기준입니다. 아래 업무 목록은 최신 1,000건만 표시하며 전체 기록은 CSV로 내보낼 수 있습니다.</p>':''}${archiveLoading?'<p>서버에서 완료 업무를 불러오는 중입니다.</p>':''}<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:12px 0">${cells.join('')}</div><h3>${archiveDay?safe(archiveDay)+' 완료 업무':'월 전체 완료 업무'} (${archiveDay?(archiveDayCounts[archiveDay]||0):Object.values(archiveDayCounts).reduce((a,b)=>a+b,0)}건)</h3><p class="srv-muted">아래 화면에는 최대 ${shown.length}건을 보여줍니다. CSV는 별도로 서버에서 조회합니다.</p>${shown.length?shown.map(t=>`<div class="srv-line"><b>${safe(t.title)}</b><div class="srv-muted">담당 ${safe(records.employees.find(e=>e.id===t.assignee_id)?.name||'직원명 확인 불가')} · 완료 ${safe(new Date(t.completed_at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}))}</div><button type="button" class="alt srv-archive-detail-toggle" data-id="${safe(t.id)}" aria-expanded="${archiveDetailId===t.id?'true':'false'}" style="margin-top:8px">${archiveDetailId===t.id?'상세 닫기':'상세 보기'}</button>${jbArchiveDetails(t)}</div>`).join(''):'<p class="srv-muted">선택한 기간에 완료된 업무가 없습니다.</p>'}`;
 }
 
@@ -2673,7 +2695,7 @@ function dashboard(){
  const jbNoticeAll=shell.querySelector('#jbHomeAllNotices');if(jbNoticeAll)jbNoticeAll.onclick=()=>{view='announcements';noticeListMode='all';dashboard()};
  shell.querySelectorAll('[data-jb-report]').forEach(b=>b.onclick=()=>{jbReportFilter=b.dataset.jbReport;dashboard();});
   shell.querySelectorAll('.jb-report-ack').forEach(b=>b.onclick=()=>jbAcknowledgeReport(b.dataset.jbAck));
- shell.querySelectorAll('[data-jb-report-task]').forEach(b=>b.onclick=()=>{view='home';openDept='';homeSelectedEmployee=b.dataset.jbReportEmployee;homeSelectedTask=b.dataset.jbReportTask;dashboard();const target=shell.querySelector('.srv-home-task-detail[data-task-id="'+b.dataset.jbReportTask+'"]');target?.scrollIntoView({behavior:'smooth',block:'center'});});
+ shell.querySelectorAll('[data-jb-report-task]').forEach(b=>b.onclick=()=>void jbOpenReportTask(b.dataset.jbReportTask,b.dataset.jbReportEmployee));
  shell.querySelectorAll('[data-jb-report-nav]').forEach(b=>b.onclick=()=>{view=b.dataset.jbReportNav;dashboard();});
  shell.querySelectorAll('.jb-home-notice-open').forEach(b=>b.onclick=()=>{const id=b.dataset.noticeId;view='announcements';noticeListMode='all';noticeListQuery='';noticeListPage=1;dashboard();const row=shell.querySelector('[data-notice="'+id+'"]');if(row){row.open=true;row.scrollIntoView({block:'center'});void noticeLoadImages(id);void noticeRead(id);} });
  const inboxReadAll=shell.querySelector('#srvInboxReadAll');if(inboxReadAll)inboxReadAll.onclick=()=>jbInboxMark(jbInboxItems().map(x=>x.id));
