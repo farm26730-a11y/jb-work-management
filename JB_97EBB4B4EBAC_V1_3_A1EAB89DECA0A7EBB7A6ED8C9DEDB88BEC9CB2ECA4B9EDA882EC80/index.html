@@ -1259,6 +1259,14 @@ async function createTask(ev){
   const note='새 업무 보고: '+title+' / '+(description||'설명 없음');
   const result=reportTarget==='owner'?await supa.rpc('jb_submit_task_owner_report_v14',{p_task_id:data.id,p_body:note.slice(0,2000)}):await supa.rpc('jb_submit_task_comment_report',{p_task_id:data.id,p_body:note.slice(0,2000),p_request_review:true});
   if(result.error)reportError=String(result.error.message||result.error);
+  else {
+   const check=await supa.from('jb_task_report_requests')
+    .select('id,target_owner,created_at').eq('task_id',data.id)
+    .eq('requester_id',profile.id).order('created_at',{ascending:false}).limit(10);
+   if(check.error)reportError='보고 요청 저장 여부 확인 실패: '+check.error.message;
+   else if(!(check.data||[]).some(x=>x.target_owner===(reportTarget==='owner')))
+    reportError='보고 함수는 오류 없이 끝났지만 확인 요청 기록이 생성되지 않았습니다. Supabase 보고 함수 또는 RLS 설정 점검이 필요합니다.';
+  }
  }
  await loadData();view='tasks';dashboard();
  if(reportError)alert('업무는 등록됐지만 보고 요청은 실패했습니다. 업무 상세에서 다시 요청해 주세요.\n'+reportError);
