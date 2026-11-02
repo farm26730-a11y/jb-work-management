@@ -1381,12 +1381,12 @@ async function jbSyncReportRequests(){
 setInterval(()=>{void jbSyncReportRequests()},15000);
 function jbPendingReportRequests(){
  const roles=new Map((records.employeeRoles||[]).map(e=>[e.id,e]));
- return (records.reportRequests||[]).filter(r=>!r.acknowledged_at&&(profile.app_role==='staff'?r.requester_id===profile.id:profile.app_role==='owner'?(r.target_owner===true||roles.get(r.requester_id)?.app_role==='manager'):(r.target_owner!==true&&roles.get(r.requester_id)?.app_role==='staff'&&roles.get(r.requester_id)?.department_id===profile.department_id)));
+ return (records.reportRequests||[]).filter(r=>!r.acknowledged_at&&(profile.app_role==='staff'?r.requester_id===profile.id:profile.app_role==='owner'?r.target_owner===true:r.target_owner===false));
 }
 function jbCanAcknowledgeRequest(r){
  if(!r||r.acknowledged_at||r.requester_id===profile.id)return false;
  const employee=(records.employeeRoles||[]).find(e=>e.id===r.requester_id);
- return profile.app_role==='owner'?(r.target_owner===true||employee?.app_role==='manager'):(profile.app_role==='manager'&&r.target_owner!==true&&employee?.app_role==='staff'&&employee?.department_id===profile.department_id);
+ return profile.app_role==='owner'?r.target_owner===true:(profile.app_role==='manager'&&r.target_owner===false);
 }
 async function jbAutoAcknowledgeTask(taskId){
  const requests=(records.reportRequests||[]).filter(r=>r.task_id===taskId&&jbCanAcknowledgeRequest(r));
@@ -2235,9 +2235,9 @@ function taskPhotoHtml(taskId,readonly=false){
 // V6.6.8.6.2: 업무 내용 수정·안전 삭제. 실제 권한은 서버 RPC에서 다시 검사합니다.
 let jbTaskModifyBusy=false;
 function jbMayManageTask(t){
- return !!profile && (profile.app_role==='owner'||t.created_by===profile.id||t.assignee_id===profile.id||(profile.app_role==='manager'&&t.department_id===profile.department_id));
+ return !!profile && (profile.app_role==='owner'||t.created_by===profile.id||t.assignee_id===profile.id||(profile.app_role==='manager'));
 }
-function jbMayDeleteTask(t){return !!profile&&(profile.app_role==='owner'||t.created_by===profile.id||(profile.app_role==='manager'&&t.department_id===profile.department_id));}
+function jbMayDeleteTask(t){return !!profile&&(profile.app_role==='owner'||t.created_by===profile.id||(profile.app_role==='manager'));}
 async function jbUpdateTask(id){
  if(jbTaskModifyBusy)return;
  const t=records.tasks.find(t=>t.id===id);
@@ -2248,6 +2248,7 @@ async function jbUpdateTask(id){
  const reviewChecked=!!form.querySelector('[name="request_review"]')?.checked;
  const ownerChecked=!!form.querySelector('[name="request_owner"]')?.checked;
  const msg=form.querySelector('.srv-task-edit-error');
+ if(reviewChecked&&ownerChecked){msg.textContent='관리자 보고와 대표님 확인 필요 중 하나만 선택하세요.';return;}
  if(!title||title.length>120){msg.textContent='업무 제목을 1~120자로 입력하세요.';return;}
  jbTaskModifyBusy=true;form.querySelectorAll('button').forEach(b=>b.disabled=true);msg.textContent='수정 내용을 저장하고 있습니다...';
  try{
@@ -2617,9 +2618,9 @@ function jbInboxItems(){
     const mine=r.requester_id===profile.id;
     const source=roleById.get(r.requester_id);
     const directed=profile.app_role==='owner'
-      ?(r.target_owner===true||source?.app_role==='manager')
+      ?(r.target_owner===true)
       :profile.app_role==='manager'
-        ?(r.target_owner!==true&&source?.app_role==='staff'&&source?.department_id===profile.department_id)
+        ?(r.target_owner===false)
         :false;
     if(!mine&&!directed)continue;
     const task=(records.tasks||[]).find(t=>t.id===r.task_id);
@@ -2754,7 +2755,7 @@ function dashboard(){
   // V6.6.6.9: filter only rendered task cards; preserve any in-progress form input.
   content+=`<div class="srv-row" style="margin:12px 0;align-items:center"><label style="flex:2;min-width:190px">업무 검색 <input type="search" id="srvMyTaskSearch" placeholder="업무 제목·설명 검색" style="width:100%;padding:9px" autocomplete="off"></label><label style="flex:1;min-width:150px">상태별 보기 <select id="srvMyTaskFilter" style="width:100%;padding:9px"><option value="all">전체</option><option value="in_progress">진행중</option><option value="planned">예정</option><option value="hold">보류</option></select></label><span class="srv-muted" id="srvMyTaskMatch" aria-live="polite"></span></div>`;
   content+=myTaskList.length?myTaskList.map(t=>{
-   const isMine=t.assignee_id===profile.id, canEdit=profile.app_role==='owner'||isMine||(profile.app_role==='manager'&&t.department_id===profile.department_id);
+   const isMine=t.assignee_id===profile.id, canEdit=profile.app_role==='owner'||isMine||(profile.app_role==='manager');
    const assigned=records.employees.find(e=>e.id===t.assignee_id)?.name||'담당자 미표시';
    const statuses=['planned','in_progress','hold','completed'];
    return `<div class="srv-line srv-my-task-card jb-readability-task" data-task-status="${safe(t.status)}" data-task-search="${safe((t.title||'')+' '+(t.description||''))}"><div class="srv-row" style="justify-content:space-between"><b>${safe(t.title)}</b>${canEdit?`<select class="srv-status" data-task="${safe(t.id)}" aria-label="업무 상태" style="padding:6px;border:1px solid #cbdcd4;border-radius:8px">${statuses.map(st=>`<option value="${st}" ${st===t.status?'selected':''}>${safe(status[st])}</option>`).join('')}</select>`:`<span class="srv-pill">${safe(status[t.status]||t.status)}</span>`}</div><div class="srv-muted">지시자: ${safe(jbTaskIssuerName(t))} · 담당: ${safe(assigned)}${t.due_date?' · 기한 '+safe(t.due_date):''}</div>${serverClockHtml(t)}<button type="button" class="alt srv-task-detail" data-id="${safe(t.id)}" style="margin-top:7px">${expandedServerTask===t.id?'상세 닫기':'상세 보기 · 댓글'}</button><button type="button" class="alt srv-task-photo-open" data-id="${safe(t.id)}" style="margin:7px 0 0 8px;border:2px solid #23865d;font-weight:700">📷 사진 첨부·조회</button>${expandedServerTask===t.id?serverTaskDetails(t):''}</div>`;
