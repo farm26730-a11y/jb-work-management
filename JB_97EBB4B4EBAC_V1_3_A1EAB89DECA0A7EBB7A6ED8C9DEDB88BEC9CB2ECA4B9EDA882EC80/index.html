@@ -1367,6 +1367,17 @@ function jbCanAcknowledgeRequest(r){
  const employee=(records.employeeRoles||[]).find(e=>e.id===r.requester_id);
  return profile.app_role==='owner'?(r.target_owner===true||employee?.app_role==='manager'):(profile.app_role==='manager'&&r.target_owner!==true&&employee?.app_role==='staff');
 }
+async function jbAutoAcknowledgeTask(taskId){
+ const requests=(records.reportRequests||[]).filter(r=>r.task_id===taskId&&jbCanAcknowledgeRequest(r));
+ for(const req of requests){
+  const {error}=await supa.rpc(req.target_owner?'jb_acknowledge_owner_task_report_v14':'jb_acknowledge_task_report',{p_request_id:req.id});
+  if(error){alert('업무 상세는 열렸지만 확인 처리 실패: '+error.message);continue;}
+  const verify=await supa.from('jb_task_report_requests').select('acknowledged_at').eq('id',req.id).maybeSingle();
+  if(verify.error||!verify.data?.acknowledged_at){alert('상세는 열렸지만 확인 완료 상태를 검증하지 못했습니다.');continue;}
+  records.reportRequests=records.reportRequests.filter(x=>x.id!==req.id);
+ }
+ if(requests.length)await loadData();
+}
 async function jbAcknowledgeReport(id){
  const req=(records.reportRequests||[]).find(r=>r.id===id);
  if(!jbCanAcknowledgeRequest(req))return alert('이 요청을 확인할 권한이 없습니다.');
@@ -1388,12 +1399,14 @@ async function jbOpenReportTask(id,employeeId){
    const done=task.completed_at?new Date(task.completed_at):new Date();
    archiveMonth=done.toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'}).slice(0,7);
    archiveDepartment='all';archiveDay='';view='archive';mobileMoreOpen=false;
-   await loadArchive();await jbArchiveToggleDetail(id);return;
+   await loadArchive();await jbArchiveToggleDetail(id);
+   if(archiveDetailRecord?.id===id&&!archiveDetailError)await jbAutoAcknowledgeTask(id);
+   return;
  }
  view='home';openDept=task.department_id||'';homeSelectedEmployee=task.assignee_id||employeeId;
  homeSelectedTask=id;mobileMoreOpen=false;dashboard();
  const detail=shell.querySelector('.srv-home-task-detail[data-task-id="'+id+'"]');
- if(detail)detail.scrollIntoView({behavior:'smooth',block:'center'});
+ if(detail){detail.scrollIntoView({behavior:'smooth',block:'center'});await jbAutoAcknowledgeTask(id);}
  else alert('해당 업무가 홈 상세 목록에 표시되지 않았습니다.');
 }
 function jbReportPanel(){
