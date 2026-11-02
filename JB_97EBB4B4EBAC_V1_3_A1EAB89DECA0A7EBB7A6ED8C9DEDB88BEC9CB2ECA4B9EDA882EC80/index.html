@@ -1619,6 +1619,16 @@ function jbChangeReviewer(c){
  const role=person?.app_role||(records.employeeRoles||[]).find(e=>e.id===c.employee_id)?.app_role;
  return (profile.app_role==='manager'&&role==='staff')||(profile.app_role==='owner'&&role==='manager');
 }
+
+let jbHistoryDept='all',jbHistoryPerson='',jbHistoryStart=localDay(-30),jbHistoryEnd=localDay();
+function jbAttendanceHistoryPanel(){
+ if(!profile||profile.app_role==='staff')return '';
+ const staff=(records.employees||[]).filter(e=>jbHistoryDept==='all'||e.department_id===jbHistoryDept);
+ const selected=staff.some(e=>e.id===jbHistoryPerson)?jbHistoryPerson:'';
+ const rows=(records.leaves||[]).filter(r=>r.employee_id===selected&&r.start_date<=jbHistoryEnd&&(r.end_date||r.start_date)>=jbHistoryStart).sort((a,b)=>String(b.start_date||'').localeCompare(String(a.start_date||'')));
+ return `<section class="srv-home-section" style="margin-top:16px"><h2>직원별 근태 이력</h2><p class="srv-muted">조회 권한이 있는 신청 기록을 표시합니다.</p><div class="srv-row" style="flex-wrap:wrap;gap:8px"><label>부서 <select id="jbHistoryDept"><option value="all">전체 부서</option>${(records.departments||[]).map(d=>`<option value="${safe(d.id)}" ${jbHistoryDept===d.id?'selected':''}>${safe(d.name)}</option>`).join('')}</select></label><label>시작일 <input id="jbHistoryStart" type="date" value="${safe(jbHistoryStart)}"></label><label>종료일 <input id="jbHistoryEnd" type="date" value="${safe(jbHistoryEnd)}"></label></div><div class="srv-row"><label>직원 <select id="jbHistoryPerson"><option value="">직원 선택</option>${staff.map(e=>`<option value="${safe(e.id)}" ${selected===e.id?'selected':''}>${safe(e.name)}</option>`).join('')}</select></label><button class="alt" type="button" id="jbHistoryGo">조회</button></div>${selected?`<h3>근태 신청 기록 (${rows.length}건)</h3>${rows.map(r=>`<div class="srv-line"><b>${safe(jbLeaveTypeLabel(r))}</b> · ${safe(r.start_date)} ~ ${safe(r.end_date||r.start_date)}<div class="srv-muted">${safe(leaveStates[r.approval_status]||r.approval_status||'미확인')}${leaveTimeLabel(r)}</div></div>`).join('')||'<p class="srv-muted">조회 가능한 기록이 없습니다.</p>'}`:'<p class="srv-muted">직원을 선택해 주세요.</p>'}</section>`;
+}
+
 function approvalQueue(compact=false){
  if(!profile||profile.app_role==='staff')return '';
  const list=records.leaves.filter(reviewerCandidate);
@@ -2639,7 +2649,7 @@ function dashboard(){
    return `<div class="srv-line srv-my-task-card jb-readability-task" data-task-status="${safe(t.status)}" data-task-search="${safe((t.title||'')+' '+(t.description||''))}"><div class="srv-row" style="justify-content:space-between"><b>${safe(t.title)}</b>${canEdit?`<select class="srv-status" data-task="${safe(t.id)}" aria-label="업무 상태" style="padding:6px;border:1px solid #cbdcd4;border-radius:8px">${statuses.map(st=>`<option value="${st}" ${st===t.status?'selected':''}>${safe(status[st])}</option>`).join('')}</select>`:`<span class="srv-pill">${safe(status[t.status]||t.status)}</span>`}</div><div class="srv-muted">지시자: ${safe(jbTaskIssuerName(t))} · 담당: ${safe(assigned)}${t.due_date?' · 기한 '+safe(t.due_date):''}</div>${serverClockHtml(t)}<button type="button" class="alt srv-task-detail" data-id="${safe(t.id)}" style="margin-top:7px">${expandedServerTask===t.id?'상세 닫기':'상세 보기 · 댓글'}</button><button type="button" class="alt srv-task-photo-open" data-id="${safe(t.id)}" style="margin:7px 0 0 8px;border:2px solid #23865d;font-weight:700">📷 사진 첨부·조회</button>${expandedServerTask===t.id?serverTaskDetails(t):''}</div>`;
   }).join(''):'<p class="srv-muted">진행중·예정·보류 업무가 없습니다. 완료한 업무는 완료 보관함에서 확인하세요.</p>';
  }
- if(view==='attendance')content=approvalQueue(true)+rosterEditor();
+ if(view==='attendance')content=approvalQueue(true)+rosterEditor()+jbAttendanceHistoryPanel();
  if(view==='leaves')content=leavePage();
  if(view==='announcements')content=noticePage();
  if(view==='employees')content=employeeManagement();
@@ -2705,6 +2715,8 @@ function dashboard(){
   shell.querySelectorAll('.srv-archive-detail-toggle').forEach(b=>b.onclick=()=>void jbArchiveToggleDetail(b.dataset.id));
  }
  if(view==='attendance'){
+  const hDept=shell.querySelector('#jbHistoryDept');if(hDept)hDept.onchange=()=>{jbHistoryDept=hDept.value;jbHistoryPerson='';dashboard()};
+  const hGo=shell.querySelector('#jbHistoryGo');if(hGo)hGo.onclick=()=>{const from=shell.querySelector('#jbHistoryStart')?.value||'',to=shell.querySelector('#jbHistoryEnd')?.value||'';if(!from||!to||from>to)return alert('조회 기간을 확인해 주세요.');jbHistoryPerson=shell.querySelector('#jbHistoryPerson')?.value||'';jbHistoryStart=from;jbHistoryEnd=to;dashboard()};
   const dateInput=shell.querySelector('#srvRosterDate');if(dateInput)dateInput.onchange=()=>{if(rosterDirty&&!confirm('저장하지 않은 배치 초안을 버리고 날짜를 바꿀까요?')){dateInput.value=rosterDate;return;}rosterOpen(dateInput.value)};
   const today=shell.querySelector('#srvRosterToday');if(today)today.onclick=()=>rosterOpen(localDay());
   const tomorrow=shell.querySelector('#srvRosterTomorrow');if(tomorrow)tomorrow.onclick=()=>rosterOpen(localDay(1));
