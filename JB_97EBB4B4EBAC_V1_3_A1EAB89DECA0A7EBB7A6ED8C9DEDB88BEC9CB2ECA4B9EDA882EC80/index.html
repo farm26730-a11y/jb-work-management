@@ -2298,6 +2298,7 @@ function archiveDates(month){
 // only the newest 1,000 rows for responsive rendering. Older rows remain
 // available from the month/day CSV export. Ignore stale month fetches.
 let archiveDayCounts={};
+let archiveDepartment='all';
 let archiveLoadSerial=0;
 async function loadArchive(){
  if(!profile||!supa)return;
@@ -2312,10 +2313,9 @@ async function loadArchive(){
   const pageSize=500,maxRows=20000;
   let total=0,finished=false;
   for(let offset=0;offset<=maxRows;offset+=pageSize){
-   const {data,error}=await supa.from('jb_tasks')
-    .select('id,title,description,status,assignee_id,department_id,due_date,completed_at,created_at')
-    .eq('status','completed').gte('completed_at',from).lt('completed_at',to)
-    .order('completed_at',{ascending:false}).order('id',{ascending:true})
+   let query=supa.from('jb_tasks').select('id,title,description,status,assignee_id,department_id,due_date,completed_at,created_at').eq('status','completed').gte('completed_at',from).lt('completed_at',to);
+    if(archiveDepartment!=='all')query=query.eq('department_id',archiveDepartment);
+    const {data,error}=await query.order('completed_at',{ascending:false}).order('id',{ascending:true})
     .range(offset,offset+pageSize-1);
    if(error)throw error;
    if(serial!==archiveLoadSerial)return;
@@ -2343,7 +2343,7 @@ let archiveExportBusy=false;
 async function exportCompletedTasksCsv(mode="month"){
  if(archiveExportBusy)return;
  if(archiveLoading)return alert('조회가 끝난 뒤 내보내기 해 주세요.');
- const selectedMonth=archiveMonth,selectedDay=mode==='day'?archiveDay:'';
+ const selectedMonth=archiveMonth,selectedDay=mode==='day'?archiveDay:'',selectedDepartment=archiveDepartment;
  if(mode==='day'&&!selectedDay)return alert('달력에서 날짜를 먼저 선택해 주세요.');
  archiveExportBusy=true;
  const buttons=[...shell.querySelectorAll('[data-srv-archive-export]')];
@@ -2362,10 +2362,9 @@ async function exportCompletedTasksCsv(mode="month"){
   const pageSize=500,maxRows=20000;
   let finished=false;
   for(let offset=0;offset<=maxRows;offset+=pageSize){
-    const {data,error}=await supa.from('jb_tasks')
-      .select('id,title,description,status,assignee_id,department_id,due_date,completed_at,created_at')
-      .eq('status','completed').gte('completed_at',from).lt('completed_at',to)
-      .order('completed_at',{ascending:false}).order('id',{ascending:true})
+    let query=supa.from('jb_tasks').select('id,title,description,status,assignee_id,department_id,due_date,completed_at,created_at').eq('status','completed').gte('completed_at',from).lt('completed_at',to);
+    if(selectedDepartment!=='all')query=query.eq('department_id',selectedDepartment);
+    const {data,error}=await query.order('completed_at',{ascending:false}).order('id',{ascending:true})
       .range(offset,offset+pageSize-1);
     if(error)throw error;
     const batch=data||[];
@@ -2456,7 +2455,7 @@ function archivePage(){
   cells.push(`<button type="button" class="srv-archive-day ${archiveDay===day?'chosen':''}" data-archive-day="${day}" style="min-height:53px;border:1px solid #dde9e2;border-radius:10px;background:${archiveDay===day?'#d7f1e1':'#fff'};color:#22513a">${d}<small style="display:block;font-size:11px">${counts[day]||0}건</small></button>`);
  }
  const shown=archiveDay?archiveRows.filter(t=>t.completed_at&&new Date(t.completed_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})===archiveDay):archiveRows;
- return `<div class="srv-row"><label style="margin:0">조회 월 <input type="month" id="srvArchiveMonth" value="${safe(month)}" style="max-width:210px"></label><button type="button" class="alt" id="srvArchiveReload">다시 조회</button><button type="button" class="alt" id="srvArchiveAll">월 전체 보기</button><button type="button" class="alt" data-srv-archive-export="month" ${archiveLoading||archiveExportBusy?'disabled':''}>⬇ 월 전체 CSV 저장</button><button type="button" class="alt" data-srv-archive-export="day" ${archiveLoading||archiveExportBusy||!archiveDay?'disabled':''}>⬇ 선택 날짜 CSV 저장</button></div><p class="srv-muted">완료 시각 기준 ${safe(month)} · 달력 조회 ${Object.values(archiveDayCounts).reduce((a,b)=>a+b,0)}건 · 목록 최대 ${archiveRows.length}건. 날짜를 눌러 선택하면 날짜별 CSV 버튼이 활성화됩니다.</p>${archiveError?`<p class="srv-error">${safe(archiveError)}</p>`:''}${archiveTruncated?'<p class="srv-note">달력 날짜별 건수는 월 전체 조회 기준입니다. 아래 업무 목록은 최신 1,000건만 표시하며 전체 기록은 CSV로 내보낼 수 있습니다.</p>':''}${archiveLoading?'<p>서버에서 완료 업무를 불러오는 중입니다.</p>':''}<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:12px 0">${cells.join('')}</div><h3>${archiveDay?safe(archiveDay)+' 완료 업무':'월 전체 완료 업무'} (${archiveDay?(archiveDayCounts[archiveDay]||0):Object.values(archiveDayCounts).reduce((a,b)=>a+b,0)}건)</h3><p class="srv-muted">아래 화면에는 최대 ${shown.length}건을 보여줍니다. CSV는 별도로 서버에서 조회합니다.</p>${shown.length?shown.map(t=>`<div class="srv-line"><b>${safe(t.title)}</b><div class="srv-muted">담당 ${safe(records.employees.find(e=>e.id===t.assignee_id)?.name||'직원명 확인 불가')} · 완료 ${safe(new Date(t.completed_at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}))}</div><button type="button" class="alt srv-archive-detail-toggle" data-id="${safe(t.id)}" aria-expanded="${archiveDetailId===t.id?'true':'false'}" style="margin-top:8px">${archiveDetailId===t.id?'상세 닫기':'상세 보기'}</button>${jbArchiveDetails(t)}</div>`).join(''):'<p class="srv-muted">선택한 기간에 완료된 업무가 없습니다.</p>'}`;
+ return `<div class="srv-row"><label style="margin:0">조회 월 <input type="month" id="srvArchiveMonth" value="${safe(month)}" style="max-width:210px"></label><label style="margin:0">부서 <select id="srvArchiveDept"><option value="all" ${archiveDepartment==='all'?'selected':''}>전체 부서</option>${(records.departments||[]).map(d=>`<option value="${safe(d.id)}" ${archiveDepartment===d.id?'selected':''}>${safe(d.name)}</option>`).join('')}</select></label><button type="button" class="alt" id="srvArchiveReload">다시 조회</button><button type="button" class="alt" id="srvArchiveAll">월 전체 보기</button><button type="button" class="alt" data-srv-archive-export="month" ${archiveLoading||archiveExportBusy?'disabled':''}>⬇ 월 전체 CSV 저장</button><button type="button" class="alt" data-srv-archive-export="day" ${archiveLoading||archiveExportBusy||!archiveDay?'disabled':''}>⬇ 선택 날짜 CSV 저장</button></div><p class="srv-muted">완료 시각 기준 ${safe(month)} · 달력 조회 ${Object.values(archiveDayCounts).reduce((a,b)=>a+b,0)}건 · 목록 최대 ${archiveRows.length}건. 날짜를 눌러 선택하면 날짜별 CSV 버튼이 활성화됩니다.</p>${archiveError?`<p class="srv-error">${safe(archiveError)}</p>`:''}${archiveTruncated?'<p class="srv-note">달력 날짜별 건수는 월 전체 조회 기준입니다. 아래 업무 목록은 최신 1,000건만 표시하며 전체 기록은 CSV로 내보낼 수 있습니다.</p>':''}${archiveLoading?'<p>서버에서 완료 업무를 불러오는 중입니다.</p>':''}<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:12px 0">${cells.join('')}</div><h3>${archiveDay?safe(archiveDay)+' 완료 업무':'월 전체 완료 업무'} (${archiveDay?(archiveDayCounts[archiveDay]||0):Object.values(archiveDayCounts).reduce((a,b)=>a+b,0)}건)</h3><p class="srv-muted">아래 화면에는 최대 ${shown.length}건을 보여줍니다. CSV는 별도로 서버에서 조회합니다.</p>${shown.length?shown.map(t=>`<div class="srv-line"><b>${safe(t.title)}</b><div class="srv-muted">담당 ${safe(records.employees.find(e=>e.id===t.assignee_id)?.name||'직원명 확인 불가')} · 완료 ${safe(new Date(t.completed_at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}))}</div><button type="button" class="alt srv-archive-detail-toggle" data-id="${safe(t.id)}" aria-expanded="${archiveDetailId===t.id?'true':'false'}" style="margin-top:8px">${archiveDetailId===t.id?'상세 닫기':'상세 보기'}</button>${jbArchiveDetails(t)}</div>`).join(''):'<p class="srv-muted">선택한 기간에 완료된 업무가 없습니다.</p>'}`;
 }
 
 
@@ -2698,6 +2697,7 @@ function dashboard(){
 
  if(view==='archive'){
   const month=shell.querySelector('#srvArchiveMonth');if(month)month.onchange=()=>{archiveMonth=month.value;archiveDay='';loadArchive()};
+   const dept=shell.querySelector('#srvArchiveDept');if(dept)dept.onchange=()=>{archiveDepartment=dept.value;archiveDay='';loadArchive()};
   const reload=shell.querySelector('#srvArchiveReload');if(reload)reload.onclick=loadArchive;
   const all=shell.querySelector('#srvArchiveAll');if(all)all.onclick=()=>{archiveDay='';dashboard()};
   shell.querySelectorAll('[data-srv-archive-export]').forEach(b=>b.onclick=()=>exportCompletedTasksCsv(b.dataset.srvArchiveExport));
