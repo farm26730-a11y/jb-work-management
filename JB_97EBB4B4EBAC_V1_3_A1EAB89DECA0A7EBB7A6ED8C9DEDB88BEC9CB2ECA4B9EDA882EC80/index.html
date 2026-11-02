@@ -1358,6 +1358,26 @@ function jbReportTasks(){
  const all=(records.tasks||[]);
  return profile?.app_role==='staff'?all.filter(t=>t.assignee_id===profile.id):all;
 }
+// V1.4: Keep the sender's pending-request count synchronized with reviewer decisions.
+let jbReportSyncBusy=false;
+async function jbSyncReportRequests(){
+ if(!supa||!profile||busy||jbReportSyncBusy||document.hidden||view!=='home')return;
+ const active=document.activeElement;
+ if(active&&shell.contains(active)&&active.matches('input,textarea,select,[contenteditable="true"]'))return;
+ jbReportSyncBusy=true;
+ try{
+  const {data,error}=await supa.from('jb_task_report_requests')
+   .select('id,task_id,requester_id,note,created_at,acknowledged_at,acknowledged_by,target_owner')
+   .order('created_at',{ascending:false}).limit(1000);
+  if(error)throw error;
+  const previous=(records.reportRequests||[]).filter(r=>!r.acknowledged_at).map(r=>r.id).sort().join(',');
+  const current=(data||[]).filter(r=>!r.acknowledged_at).map(r=>r.id).sort().join(',');
+  records.reportRequests=data||[];
+  if(previous!==current)dashboard();
+ }catch(e){console.warn('JB report request sync:',String(e.message||e));}
+ finally{jbReportSyncBusy=false;}
+}
+setInterval(()=>{void jbSyncReportRequests()},15000);
 function jbPendingReportRequests(){
  const roles=new Map((records.employeeRoles||[]).map(e=>[e.id,e.app_role]));
  return (records.reportRequests||[]).filter(r=>!r.acknowledged_at&&(profile.app_role==='staff'?r.requester_id===profile.id:profile.app_role==='owner'?(r.target_owner===true||roles.get(r.requester_id)==='manager'):(r.target_owner!==true&&roles.get(r.requester_id)==='staff')));
