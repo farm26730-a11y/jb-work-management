@@ -2621,10 +2621,24 @@ async function jbPushEnable(){
   await navigator.serviceWorker.ready;
   let subscription=await reg.pushManager.getSubscription();
   if(!subscription){const bytes=Uint8Array.from(atob(key.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(key.length/4)*4,'=')),c=>c.charCodeAt(0));subscription=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:bytes});}
-  const j=subscription.toJSON();
-  const {error}=await supa.from('jb_push_subscriptions').upsert({employee_id:profile.id,endpoint:j.endpoint,p256dh:j.keys?.p256dh,auth_secret:j.keys?.auth,user_agent:navigator.userAgent,updated_at:new Date().toISOString()},{onConflict:'endpoint'});
-  if(error)throw error;
-  say('이 휴대폰의 푸시 수신 등록 완료. 서버 발송 상태는 Netlify Functions에서 확인하세요.');
+  const saveSubscription=async sub=>{
+   const j=sub.toJSON();
+   if(!j.endpoint||!j.keys?.p256dh||!j.keys?.auth)throw Error('푸시 구독 키를 읽지 못했습니다.');
+   return supa.from('jb_push_subscriptions').upsert({employee_id:profile.id,endpoint:j.endpoint,p256dh:j.keys.p256dh,auth_secret:j.keys.auth,user_agent:navigator.userAgent,updated_at:new Date().toISOString()},{onConflict:'endpoint'});
+  };
+  let saveResult=await saveSubscription(subscription);
+  if(saveResult.error&&/row-level security|42501/i.test(String(saveResult.error.message||'')+' '+String(saveResult.error.code||''))){
+   // This browser may still have a subscription owned by a previously signed-in employee.
+   // Never transfer another employee's database row or relax RLS.
+   say('이전 계정의 기기 구독을 브라우저에서 해제하고 새로 등록합니다...');
+   const removed=await subscription.unsubscribe();
+   if(!removed)throw Error('이전 구독을 해제하지 못했습니다. 브라우저 알림 설정을 확인해 주세요.');
+   const bytes=Uint8Array.from(atob(key.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(key.length/4)*4,'=')),c=>c.charCodeAt(0));
+   subscription=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:bytes});
+   saveResult=await saveSubscription(subscription);
+  }
+  if(saveResult.error)throw saveResult.error;
+  say('현재 로그인한 계정의 휴대폰 푸시 등록 완료.');
  }catch(e){say('푸시 등록 실패: '+String(e.message||e));}
 }
 function jbInboxPage(){
