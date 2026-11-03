@@ -1067,7 +1067,7 @@ function login(msg=''){
  document.getElementById('srvSettings').onclick=()=>{supa=null;setup()};
  document.getElementById('srvLogin').onclick=async()=>{
  const button=document.getElementById('srvLogin');button.disabled=true;document.getElementById('srvLoginMsg').textContent='로그인 확인 중...';
- try{const loginId=document.getElementById('srvEmail').value.trim();const password=document.getElementById('srvPassword').value;if(!loginId||!password)throw new Error('이메일과 비밀번호를 입력하세요.');if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(loginId))throw new Error('올바른 이메일 주소를 입력하세요.');const {error}=await supa.auth.signInWithPassword({email:loginId,password});if(error)throw error;await loadProfile()}catch(e){document.getElementById('srvLoginMsg').textContent='로그인 오류: '+String(e.message||e);button.disabled=false}
+ try{const loginId=document.getElementById('srvEmail').value.trim();const password=document.getElementById('srvPassword').value;if(!loginId||!password)throw new Error('이메일과 비밀번호를 입력하세요.');if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginId))throw new Error('올바른 이메일 주소를 입력하세요.');const {error}=await supa.auth.signInWithPassword({email:loginId,password});if(error)throw error;await loadProfile()}catch(e){document.getElementById('srvLoginMsg').textContent='로그인 오류: '+String(e.message||e);button.disabled=false}
  };
  document.getElementById('srvShowSignup').onclick=()=>jbShowSignup();
 }
@@ -1077,12 +1077,13 @@ function jbShowSignup(msg=''){
  document.getElementById('jbSignupSubmit').onclick=async()=>{
   const b=document.getElementById('jbSignupSubmit'),m=document.getElementById('jbSignupMessage');
   const email=document.getElementById('jbSignupEmail').value.trim(),password=document.getElementById('jbSignupPassword').value,confirmPassword=document.getElementById('jbSignupConfirm').value;
-  if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)){m.textContent='올바른 이메일 주소를 입력하세요.';return;}
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){m.textContent='올바른 이메일 주소를 입력하세요.';return;}
   if(password.length<8){m.textContent='비밀번호는 최소 8자 이상 입력하세요.';return;}
   if(password!==confirmPassword){m.textContent='비밀번호가 일치하지 않습니다.';return;}
   b.disabled=true;m.textContent='회원가입 처리 중...';
   try{
-   const {data,error}=await supa.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin+window.location.pathname}});
+   const signupOptions=/^https?:$/.test(window.location.protocol)?{emailRedirectTo:window.location.origin+window.location.pathname}:undefined;
+   const {data,error}=await supa.auth.signUp({email,password,...(signupOptions?{options:signupOptions}:{})});
    if(error)throw error;
    // 인증 확인을 끈 Supabase 프로젝트에서도 미승인 직원의 앱 진입을 방지합니다.
    if(data?.session)await supa.auth.signOut();
