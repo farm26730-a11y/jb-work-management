@@ -16,7 +16,7 @@ function response(origin: string | null, payload: object, status = 200) {
     headers.set('access-control-allow-methods', 'POST, OPTIONS')
     headers.set('access-control-allow-headers', 'authorization, apikey, content-type, x-client-info')
   }
-  return new Response(JSON.stringify(payload), { status, headers })
+  return new Response(status === 204 ? null : JSON.stringify(payload), { status, headers })
 }
 const fail = (origin: string | null, status = 401) =>
   response(origin, { error: '직원 이름 또는 비밀번호를 확인하세요.' }, status)
