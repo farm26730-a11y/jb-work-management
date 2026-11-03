@@ -1503,14 +1503,15 @@ function homePage(){
   for(const e of records.employees){if(leaveIds.has(e.id))addGroup('휴무',e.name);else if(halfByEmployee.has(e.id)&&!days.some(a=>a.employee_id===e.id))addGroup(records.departments.find(d=>d.id===e.department_id)?.name||'장소 미지정',e.name+' ('+halfByEmployee.get(e.id)+')');}
  html+=`<section class="srv-home-section"><h2>2. 오늘 출근 인원</h2><div class="srv-row srv-day-tabs"><button data-day="today" class="${homeDay==='today'?'srv-chosen':''}">오늘</button><button data-day="tomorrow" class="${homeDay==='tomorrow'?'srv-chosen':''}">내일 출근 인원</button></div><h3>${safe(date)} 인원배치</h3>`;
  if(!grouped.size)html+='<p class="srv-warning-text">'+safe(date)+' 날짜에 조회된 서버 인원배치가 없습니다. 오늘·내일 전환은 작동하지만 표시할 배치 데이터가 없는 상태입니다. 기존 V5.2 가상 명단은 가져오지 않았습니다.</p>';
- // V1.4: 홈 인원배치 순서 고정: 농원 → 동이 → 밭 → 범조경 → 그 외 장소 → 출장 → 휴무.
+ // V1.4: 홈 인원배치 순서 고정: 농원 → 동이 → 밭 → 사무실 → 범조경 → 그 외 장소 → 출장 → 휴무.
  // 원래 근무 장소 이름과 직원별 배치 데이터는 그대로 유지한다.
  const rosterHomeOrder=place=>{
   const name=String(place||'').trim().replace(/\\s+/g,'');
   if(name==='농원')return 0;
   if(name==='동이')return 1;
   if(name==='밭'||name==='밭팀')return 2;
-  if(name==='범조경'||name==='범조경연구소'||name==='조경사업부'||name==='쇼가든'||name==='조경사업부(쇼가든)')return 3;
+  if(name==='사무실'||name==='본사')return 3;
+  if(name==='범조경'||name==='범조경연구소'||name==='조경사업부'||name==='쇼가든'||name==='조경사업부(쇼가든)')return 4;
   if(name==='출장'||name==='해외연수')return 998;
   if(name==='휴무')return 999;
   return 100;
