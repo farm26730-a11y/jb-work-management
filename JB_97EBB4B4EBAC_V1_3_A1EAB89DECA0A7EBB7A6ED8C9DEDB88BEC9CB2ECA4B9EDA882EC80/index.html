@@ -1537,7 +1537,7 @@ function homePage(){
  html+=`<section class="srv-home-section"><h2>2. 오늘 출근 인원</h2><div class="srv-row srv-day-tabs"><button data-day="today" class="${homeDay==='today'?'srv-chosen':''}">오늘</button><button data-day="tomorrow" class="${homeDay==='tomorrow'?'srv-chosen':''}">내일 출근 인원</button></div><h3>${safe(date)} 인원배치</h3>`;
  if(!grouped.size)html+='<p class="srv-warning-text">'+safe(date)+' 날짜에 조회된 서버 인원배치가 없습니다. 오늘·내일 전환은 작동하지만 표시할 배치 데이터가 없는 상태입니다. 기존 V5.2 가상 명단은 가져오지 않았습니다.</p>';
  // 출근/장소/출장 명단은 기존 순서를 유지하고 휴무 그룹만 마지막으로 표시.
- for(const [place,names] of [...grouped].sort((a,b)=>Number(a[0]==='휴무')-Number(b[0]==='휴무')))html+=`<p class="srv-place-line"><b>${safe(place)} :</b> ${safe([...new Set(names)].join(', '))}</p>`;
+ for(const [place,names] of [...grouped].sort((a,b)=>jbRosterPlaceRank(a[0])-jbRosterPlaceRank(b[0])))html+=`<p class="srv-place-line"><b>${safe(place)} :</b> ${safe([...new Set(names)].sort(jbRosterHomeNameCompare).join(', '))}</p>`;
  const selectedNote=(records.notes||[]).find(n=>n.work_date===date);if(selectedNote)html+='<div class="srv-note"><b>추가 작업 안내</b><div>'+safe(selectedNote.note)+'</div></div>';
  html+='<p class="srv-muted">선택 날짜: '+safe(date)+' · 서버 배치 '+days.length+'건 · 승인 휴무 '+leaveIds.size+'명</p>';
  html+='</section>';
@@ -1549,6 +1549,42 @@ function homePage(){
 }
 // JB 업무관리 | V5.6 서버 인원배치 초안 및 저장
 const rosterStatuses={working:'출근',trip:'출장',off:'휴무'};
+/* 인원배치 고정 표시 규칙: 농원 → 밭 → 사무실 → 동이 → 쇼가든 → 기타 → 출장 → 휴무 */
+const jbRosterPositionPriority=['대표','회장','사장','부사장','전무','상무','이사','본부장','부장','실장','차장','과장','대리','주임','계장','반장','팀장','사원','직원'];
+function jbRosterPositionRank(position){
+ const p=String(position||'').replace(/\s+/g,'');
+ const n=jbRosterPositionPriority.findIndex(x=>p.includes(x));
+ return n<0?999:n;
+}
+function jbRosterPlaceRank(place){
+ const p=String(place||'').replace(/\s+/g,'');
+ if(p==='휴무')return 999;
+ if(p==='출장')return 998;
+ if(p.includes('농원'))return 0;
+ if(p.includes('밭'))return 1;
+ if(p.includes('사무실')||p.includes('본사'))return 2;
+ if(p.includes('동이'))return 3;
+ if(p.includes('쇼가든')||p.includes('조경사업부'))return 4;
+ return 100;
+}
+function jbRosterPersonCompare(a,b){
+ const ra=jbRosterPositionRank(a?.position),rb=jbRosterPositionRank(b?.position);
+ return ra-rb||String(a?.name||'').localeCompare(String(b?.name||''),'ko');
+}
+function jbRosterDraftCompare(i,j){
+ const a=rosterDraft[i],b=rosterDraft[j];
+ const ea=(records.employees||[]).find(e=>e.id===a.employee_id);
+ const eb=(records.employees||[]).find(e=>e.id===b.employee_id);
+ return jbRosterPersonCompare(ea||{name:a.label||a.temporary_name},eb||{name:b.label||b.temporary_name});
+}
+function jbRosterHomeNameCompare(a,b){
+ const who=text=>{
+  const str=String(text||'');
+  return (records.employees||[]).filter(e=>str===e.name||str.startsWith(e.name+' (')).sort((x,y)=>y.name.length-x.name.length)[0]||{name:str};
+ };
+ return jbRosterPersonCompare(who(a),who(b));
+}
+
 function dayShift(day,amount){const d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+amount);return d.toISOString().slice(0,10)}
 function rosterCanEdit(){return ['owner','manager'].includes(profile?.app_role)}
 // V6.4.1: 인원배치는 대표·관리자가 전체 직원 명단을 편집합니다. 업무 등록/휴무 승인의 부서 제한은 유지합니다.
@@ -1641,16 +1677,16 @@ function rosterEditor(){
  // 펼침 상태는 기본으로 닫힘이며, input 변경값은 details 토글만으로 사라지지 않습니다.
  const working=activeIndexes.filter(i=>displayStatus(rosterDraft[i])==='working');
  const departments=records.departments.map(d=>d.name);
- const groupNames=[...departments,...new Set(working.map(i=>deptNameForRoster(rosterDraft[i])).filter(n=>!departments.includes(n)))];
+ const groupNames=[...departments,...new Set(working.map(i=>deptNameForRoster(rosterDraft[i])).filter(n=>!departments.includes(n)))].sort((a,b)=>jbRosterPlaceRank(a)-jbRosterPlaceRank(b));
  html+='<div class="jb-roster-category" data-status="working"><div class="jb-roster-category-header"><span>출근 · 부서별 명단</span><span>'+working.length+'명</span></div>';
  groupNames.forEach(name=>{
-   const members=working.filter(i=>deptNameForRoster(rosterDraft[i])===name).sort((a,b)=>String(rosterDraft[a].label||'').localeCompare(String(rosterDraft[b].label||''),'ko'));
+   const members=working.filter(i=>deptNameForRoster(rosterDraft[i])===name).sort(jbRosterDraftCompare);
    if(!members.length)return;
    html+=`<details class="jb-roster-fold"><summary><span>${safe(name)}</span><span>${members.length}명 <span aria-hidden="true">▾</span></span></summary><div class="jb-roster-fold-body">${members.map(rosterPersonCard).join('')}</div></details>`;
  });
  html+='</div>';
  for(const status of ['trip','off']){
-   const members=activeIndexes.filter(i=>displayStatus(rosterDraft[i])===status).sort((a,b)=>String(rosterDraft[a].label||'').localeCompare(String(rosterDraft[b].label||''),'ko'));
+   const members=activeIndexes.filter(i=>displayStatus(rosterDraft[i])===status).sort(jbRosterDraftCompare);
    html+=`<details class="jb-roster-fold jb-roster-status-fold" data-status="${status}"><summary><span>${safe(rosterStatuses[status])} 명단</span><span>${members.length}명 <span aria-hidden="true">▾</span></span></summary><div class="jb-roster-fold-body">${members.map(rosterPersonCard).join('')||'<p class="srv-muted">해당 인원이 없습니다.</p>'}</div></details>`;
  }
  if(can)html+=`<button class="alt" id="srvRosterAdd">＋ 임시 인원 추가</button>`;
