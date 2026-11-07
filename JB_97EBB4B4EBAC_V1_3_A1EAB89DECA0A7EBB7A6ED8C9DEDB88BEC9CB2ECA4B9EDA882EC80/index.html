@@ -1506,23 +1506,33 @@ async function jbOpenReportTask(id,employeeId){
  if(detail){detail.scrollIntoView({behavior:'smooth',block:'center'});await jbAutoAcknowledgeTask(id);}
  else alert('해당 업무가 홈 상세 목록에 표시되지 않았습니다.');
 }
+// V1.3 홈 확인 요청: 서버가 승인 가능으로 지정한 근태 신청만 표시.
+function jbHomeApprovalItems(){
+ if(!profile||!['owner','manager'].includes(profile.app_role))return [];
+ const leaves=(records.leaves||[]).filter(r=>reviewerCandidate(r)).map(r=>({kind:'leave',id:r.id,created_at:r.created_at||r.start_date,record:r}));
+ const changes=(records.leaveChanges||[]).filter(c=>c.status==='pending'&&c.employee_id!==profile.id&&c.can_review===true).map(c=>({kind:'leave-change',id:c.id,created_at:c.created_at||c.requested_at||'',record:c}));
+ return [...leaves,...changes];
+}
+function jbHomeLeaveCard(r){const e=records.employees.find(x=>x.id===r.employee_id);const who=e?`${e.name} ${e.position||''}`:'직원 정보 확인 필요';return `<div class="srv-line"><div class="srv-row" style="justify-content:space-between"><b>${safe(who)} · ${safe(jbLeaveTypeLabel(r))}</b><span class="srv-pill">승인 대기</span></div><div class="srv-muted">${safe(r.start_date)} ~ ${safe(r.end_date)}${leaveTimeLabel(r)}</div><div style="white-space:pre-wrap">${safe(r.reason||'사유 없음')}</div><div class="srv-row" style="margin-top:9px"><button type="button" data-leave-review="${safe(r.id)}" data-decision="approved" ${leaveSaving?'disabled':''}>승인</button><button type="button" class="alt" data-leave-review="${safe(r.id)}" data-decision="rejected" ${leaveSaving?'disabled':''}>반려</button></div></div>`}
+function jbHomeLeaveChangeCard(c){const e=records.employees.find(x=>x.id===c.employee_id);return `<div class="srv-line"><div class="srv-row" style="justify-content:space-between"><b>${safe(e?.name||'직원')} · 승인된 근태 ${c.action==='cancel'?'취소':'변경'} 요청</b><span class="srv-pill">처리 대기</span></div><p class="srv-muted">신청 내역을 확인하고 승인 또는 반려해 주세요.</p><div class="srv-row"><button type="button" data-leave-change-review="${safe(c.id)}" data-decision="approved">요청 승인</button><button type="button" class="alt" data-leave-change-review="${safe(c.id)}" data-decision="rejected">요청 반려</button></div></div>`}
 function jbReportPanel(){
  const my=jbReportTasks(),today=localDay(),requests=jbPendingReportRequests();
+ const attention=[...requests.map(r=>({...r,kind:'report'})),...jbHomeApprovalItems()];
  const overdue=my.filter(t=>t.status!=='completed'&&t.due_date&&t.due_date<today);
  const completedToday=my.filter(t=>t.status==='completed'&&t.completed_at&&new Date(t.completed_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})===today);
  const running=my.filter(t=>t.status==='in_progress');
- const filters=[['attention','확인 요청',requests.length],['overdue','기간 경과',overdue.length],['running','진행중',running.length],['done','오늘 완료',completedToday.length]];
+ const filters=[['attention','확인 요청',attention.length],['overdue','기간 경과',overdue.length],['running','진행중',running.length],['done','오늘 완료',completedToday.length]];
  const names=new Map((records.employees||[]).map(e=>[e.id,e.name]));
  const taskMap=new Map(my.map(t=>[t.id,t]));
  const isRequests=jbReportFilter==='attention';
- const chosen=isRequests?requests:({overdue,running,done:completedToday}[jbReportFilter]||[]);
- const ordered=isRequests?[...requests].sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))).slice(0,7):[...chosen].sort((a,b)=>String(a.due_date||'9999-12-31').localeCompare(String(b.due_date||'9999-12-31'))).slice(0,7);
+ const chosen=isRequests?attention:({overdue,running,done:completedToday}[jbReportFilter]||[]);
+ const ordered=isRequests?[...attention].sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))).slice(0,7):[...chosen].sort((a,b)=>String(a.due_date||'9999-12-31').localeCompare(String(b.due_date||'9999-12-31'))).slice(0,7);
  return `<section class="jb-report-widget" aria-label="오늘의 업무 보고 현황">
  <div class="jb-report-head"><div><h2>오늘의 업무·확인 현황</h2><p>실제 업무 기록 기준 · ${profile?.app_role==='staff'?'내 업무':'권한별 업무 현황'}</p></div><span class="jb-report-day">${safe(today)}</span></div>
  <div class="jb-report-grid">${filters.map(([key,label,num])=>`<button type="button" class="jb-report-tile ${jbReportFilter===key?'active':''}" data-jb-report="${key}" aria-pressed="${jbReportFilter===key}"><span>${label}</span><strong>${num}<small>건</small></strong></button>`).join('')}</div>
  <div class="jb-report-list"><div class="jb-report-listhead"><b>${safe(filters.find(x=>x[0]===jbReportFilter)?.[1]||'확인 요청')}</b><span>${chosen.length}건</span></div>
- ${ordered.length?(isRequests?ordered.map(r=>{const task=taskMap.get(r.task_id);return `<div class="jb-report-item" style="display:block;text-align:left"><b>${safe(task?.title||'업무 제목 확인 필요')}</b><div class="jb-report-itemmeta">요청자: ${safe(names.get(r.requester_id)||'직원')} · ${r.target_owner?'<strong style="color:#a83030">[대표님 직접 보고]</strong> ':''}${safe(r.note||'')}</div><div class="srv-row" style="margin-top:7px;gap:8px"><button type="button" class="alt" data-jb-report-task="${safe(r.task_id)}" data-jb-report-employee="${safe(task?.assignee_id||'')}">업무 상세</button>${jbCanAcknowledgeRequest(r)?`<button type="button" class="alt jb-report-ack" data-jb-ack="${safe(r.id)}">확인 완료</button>`:'<span class="srv-muted">상급자 확인 대기</span>'}</div></div>`}).join(''):ordered.map(t=>`<button class="jb-report-item" type="button" data-jb-report-task="${safe(t.id)}" data-jb-report-employee="${safe(t.assignee_id)}"><span class="jb-report-itemtitle">${safe(t.title||'제목 없음')}</span><span class="jb-report-itemmeta">담당: ${safe(names.get(t.assignee_id)||'직원')} · ${safe(t.due_date||'기한 미지정')} · ${safe(status[t.status]||t.status)}</span></button>`).join('')):`<p class="srv-muted">${isRequests?'현재 미확인 요청이 없습니다.':'해당 업무가 없습니다.'}</p>`}
- ${chosen.length>7?`<p class="jb-report-note">최근 7건만 표시합니다.</p>`:''}</div>
+ ${ordered.length?(isRequests?ordered.map(r=>{if(r.kind==='leave')return jbHomeLeaveCard(r.record);if(r.kind==='leave-change')return jbHomeLeaveChangeCard(r.record);const task=taskMap.get(r.task_id);return `<div class="jb-report-item" style="display:block;text-align:left"><b>${safe(task?.title||'업무 제목 확인 필요')}</b><div class="jb-report-itemmeta">요청자: ${safe(names.get(r.requester_id)||'직원')} · ${r.target_owner?'<strong style="color:#a83030">[대표님 직접 보고]</strong> ':''}${safe(r.note||'')}</div><div class="srv-row" style="margin-top:7px;gap:8px"><button type="button" class="alt" data-jb-report-task="${safe(r.task_id)}" data-jb-report-employee="${safe(task?.assignee_id||'')}">업무 상세</button>${jbCanAcknowledgeRequest(r)?`<button type="button" class="alt jb-report-ack" data-jb-ack="${safe(r.id)}">확인 완료</button>`:'<span class="srv-muted">상급자 확인 대기</span>'}</div></div>`}).join(''):ordered.map(t=>`<button class="jb-report-item" type="button" data-jb-report-task="${safe(t.id)}" data-jb-report-employee="${safe(t.assignee_id)}"><span class="jb-report-itemtitle">${safe(t.title||'제목 없음')}</span><span class="jb-report-itemmeta">담당: ${safe(names.get(t.assignee_id)||'직원')} · ${safe(t.due_date||'기한 미지정')} · ${safe(status[t.status]||t.status)}</span></button>`).join('')):`<p class="srv-muted">${isRequests?'현재 미확인 요청이 없습니다.':'해당 업무가 없습니다.'}</p>`}
+ ${chosen.length>7?`<p class="jb-report-note">최근 7건만 표시합니다. 휴무·근태 전체 내역은 휴무 메뉴에서 확인하세요.</p>`:''}</div>
  <div class="jb-report-actions"><button type="button" class="alt" data-jb-report-nav="inbox">🔔 알림 확인</button><button type="button" class="alt" data-jb-report-nav="tasks">내 업무 조회</button></div></section>`;
 }
 
@@ -1566,7 +1576,6 @@ function homePage(){
  for(const l of dayApprovedLeaves.filter(l=>['half_am','half_pm'].includes(l.leave_category))){halfByEmployee.set(l.employee_id,l.leave_category==='half_am'?'오전 반차':'오후 반차');}
  const canAll=true; // V6.6.3 전 직원 업무 조회 (수정 권한은 별도 유지)
  const departments=records.departments.filter(d=>records.employees.some(e=>e.department_id===d.id));
- const pending=records.leaves.filter(reviewerCandidate).length;
  const inProgress=records.tasks.filter(t=>t.status==='in_progress').length;
  const held=records.tasks.filter(t=>t.status==='hold').length;
  const planned=records.tasks.filter(t=>t.status==='planned').length;
@@ -1618,8 +1627,6 @@ function homePage(){
  html+='</section>';
  html+=`<section class="srv-home-section"><h2>3. 공지사항</h2>${records.announcements.length?records.announcements.slice(0,2).map(n=>`<div class="srv-line"><b>${safe(n.title)}</b><p class="srv-muted">${safe(n.content).slice(0,120)}</p></div>`).join(''):'<p class="srv-muted">등록된 서버 공지사항이 없습니다.</p>'}</section>`;
  html+=eventHome();
- html+=`<section class="srv-home-section"><h2>5. 휴무·연장근무 승인 대기</h2><p class="srv-muted">현재 승인 가능한 신청 ${pending}건</p></section>`;
- html+=approvalQueue(true);
  return html;
 }
 // JB 업무관리 | V5.6 서버 인원배치 초안 및 저장
