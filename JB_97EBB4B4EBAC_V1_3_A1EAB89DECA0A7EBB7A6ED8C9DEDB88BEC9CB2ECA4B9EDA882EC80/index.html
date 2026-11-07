@@ -2962,8 +2962,8 @@ function jbMealPage(){
   const rows=people.map(e=>{const x=draft[e.id]||{eating:false,location:'농원'};return `<tr><td><b>${safe(e.name)}</b> ${safe(e.position||'')}</td><td><input type="checkbox" class="meal-person" data-id="${safe(e.id)}" ${x.eating?'checked':''} aria-label="식사 신청"></td><td>${jbMealV14Type==='dinner'?(x.eating?'신청':'미신청'):`<select class="meal-place" data-id="${safe(e.id)}" ${x.eating?'':'disabled'}>${selectPlaces(x.location)}</select>`}</td></tr>`}).join('');
   const regulars=jbMealRegularPeople.filter(r=>r.active&&r.department_id===jbMealV14Dept);
   const regularRows=regulars.map(r=>{const d=jbMealRegularDraft[r.id]||{eating:false,location:r.default_location||'농원'};return `<tr><td><b>${safe(r.display_name)}</b></td><td><input type="checkbox" class="meal-regular-on" data-id="${safe(r.id)}" ${d.eating?'checked':''} aria-label="고정 인원 식사 신청"></td><td>${jbMealV14Type==='dinner'?(d.eating?'신청':'미신청'):`<select class="meal-regular-place" data-id="${safe(r.id)}" ${d.eating?'':'disabled'}>${selectPlaces(d.location)}</select>`}</td></tr>`}).join('');
-  const regularManage=profile.app_role==='owner'||profile.app_role==='manager';
-  const regularCanAdd=regularManage||(profile.app_role==='staff'&&jbMealV14Dept===profile.department_id);
+  const regularManage=['owner','manager','staff'].includes(profile?.app_role);
+  const regularCanAdd=regularManage;
   const guests=jbMealV14Guests.filter(g=>g.meal_date===jbMealV14Date&&g.meal_type===jbMealV14Type&&g.department_id===jbMealV14Dept);
   const c=jbMealV14Counts(jbMealV14Date);
   html+=`<div class="meal-formbar"><label>날짜<input type="date" id="meal-date" value="${safe(jbMealV14Date)}"></label><label>점심·저녁<select id="meal-kind"><option value="lunch" ${jbMealV14Type==='lunch'?'selected':''}>점심</option><option value="dinner" ${jbMealV14Type==='dinner'?'selected':''}>저녁</option></select></label><label>신청 대상 부서 (전체 부서 선택 가능)<select id="meal-dept">${depts.map(d=>`<option value="${safe(d.id)}" ${d.id===jbMealV14Dept?'selected':''}>${safe(d.name)}</option>`).join('')}</select></label></div>
@@ -2982,7 +2982,7 @@ function jbMealPage(){
   <label><input type="checkbox" id="meal-regular-lunch-default" style="width:auto" checked> 기본 점심 명단 포함</label>
   <label><input type="checkbox" id="meal-regular-dinner-default" style="width:auto"> 기본 저녁 명단 포함</label></div>
   <button type="button" id="meal-regular-add" class="alt">고정 인원 등록</button>
-  ${regularManage?regulars.map(r=>`<div class="srv-row" style="justify-content:space-between;padding:9px 0;border-bottom:1px solid #dbe8e2"><span>${safe(r.display_name)} · ${safe(r.default_location)} / 기본 점심 ${r.default_lunch?'O':'X'} · 저녁 ${r.default_dinner?'O':'X'}</span><button type="button" class="alt meal-regular-disable" data-id="${safe(r.id)}">비활성화</button></div>`).join(''):''}
+  ${profile.app_role!=='staff'?regulars.map(r=>`<div class="srv-row" style="justify-content:space-between;padding:9px 0;border-bottom:1px solid #dbe8e2"><span>${safe(r.display_name)} · ${safe(r.default_location)} / 기본 점심 ${r.default_lunch?'O':'X'} · 저녁 ${r.default_dinner?'O':'X'}</span><button type="button" class="alt meal-regular-disable" data-id="${safe(r.id)}">비활성화</button></div>`).join(''):''}
   </details>`:''}
   ${jbMealRegularMessage?`<p class="srv-good">${safe(jbMealRegularMessage)}</p>`:''}</div>
   <div class="meal-panel"><h3>일시 외부 인원 추가</h3><div class="meal-guest-grid"><label>구분<select id="meal-guest-kind"><option>외부 작업자</option><option>방문객</option><option>협력업체</option><option>기타</option></select></label><label>인원수<input type="number" id="meal-guest-count" min="1" max="200" value="1"></label>${jbMealV14Type==='lunch'?`<label>점심 장소<select id="meal-guest-place">${selectPlaces('동이')}</select></label>`:''}<label>비고<input type="text" id="meal-guest-note" maxlength="100" placeholder="외부 인원 설명"></label></div><button type="button" class="alt" id="meal-add-guest">외부 인원 저장</button>
@@ -3086,9 +3086,10 @@ async function jbMealRegularSave(){
 }
 async function jbMealRegularManage(id,deactivate){
  if(!['owner','manager','staff'].includes(profile?.app_role))return;
- if(profile.app_role==='staff'&&(id||deactivate||jbMealV14Dept!==profile.department_id)){alert('직원은 소속 부서의 고정 식사 인원 추가만 가능합니다.');return;}
+ 
  const existing=id?jbMealRegularPeople.find(x=>x.id===id):null;
  if(id&&!existing)return;
+ if(deactivate&&profile.app_role==='staff'){alert('고정 인원 비활성화는 관리자에게 요청해 주세요.');return;}
  if(deactivate&&!confirm('고정 식사 명단에서 비활성화할까요? 이미 저장된 과거 신청 내역은 유지됩니다.'))return;
  const name=existing?.display_name||shell.querySelector('#meal-regular-name')?.value.trim()||'';
  const place=existing?.default_location||shell.querySelector('#meal-regular-place-default')?.value||'농원';
