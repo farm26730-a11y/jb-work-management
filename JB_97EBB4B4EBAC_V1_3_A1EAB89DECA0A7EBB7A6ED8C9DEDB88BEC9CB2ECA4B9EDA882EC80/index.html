@@ -2777,6 +2777,7 @@ document.addEventListener('click',event=>{
 
 
 let jbMealV14Screen='apply',jbMealV14Date='',jbMealV14Month='',jbMealV14Day='',jbMealV14Type='lunch',jbMealV14Dept='',jbMealV14Staff=[],jbMealV14Guests=[],jbMealV14Settings='16:00',jbMealV14Loading=false,jbMealV14Saving=false,jbMealV14Error='',jbMealV14Draft=null,jbMealV14Dirty=false;
+let jbMealRegularPeople=[],jbMealRegularOrders=[],jbMealRegularDraft={},jbMealRegularDirty=false,jbMealRegularSaving=false,jbMealRegularMessage='';
 const jbMealV14Places=['농원','동이','쇼가든'];
 function jbMealV14MonthBounds(month){const [y,m]=month.split('-').map(Number);const last=new Date(y,m,0).getDate();return [month+'-01',month+'-'+String(last).padStart(2,'0'),last]}
 function jbMealV14AuthorizedDepartments(){return (records.departments||[]).filter(d=>profile?.app_role==='owner'||d.id===profile?.department_id)}
@@ -2787,27 +2788,39 @@ function jbMealV14MakeDraft(){
   members[e.id]={eating:!!found,location:found?.location||'농원'};
  }
  jbMealV14Draft=members;jbMealV14Dirty=false;
+ const fixed={};
+ for(const e of jbMealRegularPeople.filter(x=>x.active&&x.department_id===jbMealV14Dept)){
+  const found=jbMealRegularOrders.find(r=>r.meal_date===jbMealV14Date&&r.meal_type===jbMealV14Type&&r.regular_id===e.id);
+  fixed[e.id]={eating:!!found,location:found?.location||e.default_location||'농원'};
+ }
+ jbMealRegularDraft=fixed;jbMealRegularDirty=false;
 }
 function jbMealV14Counts(date){
  const lunch=jbMealV14Staff.filter(e=>e.meal_date===date&&e.meal_type==='lunch'),dinner=jbMealV14Staff.filter(e=>e.meal_date===date&&e.meal_type==='dinner');
  const gl=jbMealV14Guests.filter(e=>e.meal_date===date&&e.meal_type==='lunch'),gd=jbMealV14Guests.filter(e=>e.meal_date===date&&e.meal_type==='dinner');
  const externalL=gl.reduce((n,g)=>n+g.headcount,0),externalD=gd.reduce((n,g)=>n+g.headcount,0);
- const places=Object.fromEntries(jbMealV14Places.map(p=>[p,lunch.filter(e=>e.location===p).length+gl.filter(e=>e.location===p).reduce((n,g)=>n+g.headcount,0)]));
- return {lunch:lunch.length+externalL,dinner:dinner.length+externalD,staffLunch:lunch.length,staffDinner:dinner.length,guestLunch:externalL,guestDinner:externalD,places};
+ const fixedL=jbMealRegularOrders.filter(r=>r.meal_date===date&&r.meal_type==='lunch');
+ const fixedD=jbMealRegularOrders.filter(r=>r.meal_date===date&&r.meal_type==='dinner');
+ const places=Object.fromEntries(jbMealV14Places.map(p=>[p,lunch.filter(e=>e.location===p).length+fixedL.filter(e=>e.location===p).length+gl.filter(e=>e.location===p).reduce((n,g)=>n+g.headcount,0)]));
+ return {lunch:lunch.length+fixedL.length+externalL,dinner:dinner.length+fixedD.length+externalD,staffLunch:lunch.length,staffDinner:dinner.length,regularLunch:fixedL.length,regularDinner:fixedD.length,guestLunch:externalL,guestDinner:externalD,places};
 }
 async function jbMealV14Load(){
  jbMealV14Loading=true;jbMealV14Error='';dashboard();
  try{
   const [start,end]=jbMealV14MonthBounds(jbMealV14Month);
-  const [staff,guests,settings]=await Promise.all([
+  const [staff,guests,settings,regularPeople,regularOrders]=await Promise.all([
    supa.from('jb_meal_employee_v14').select('meal_date,meal_type,employee_id,department_id,location').gte('meal_date',start).lte('meal_date',end).limit(2000),
    supa.from('jb_meal_guest_v14').select('id,meal_date,meal_type,department_id,guest_kind,headcount,location,note').gte('meal_date',start).lte('meal_date',end).limit(2000),
-   supa.from('jb_meal_settings').select('dinner_deadline').eq('id',true).maybeSingle()
+   supa.from('jb_meal_settings').select('dinner_deadline').eq('id',true).maybeSingle(),
+   supa.from('jb_meal_regular_people_v15').select('id,department_id,display_name,default_location,default_lunch,default_dinner,active').order('display_name').limit(1000),
+   supa.from('jb_meal_regular_orders_v15').select('meal_date,meal_type,regular_id,location').gte('meal_date',start).lte('meal_date',end).limit(2000)
   ]);
   if(staff.error)throw staff.error;if(guests.error)throw guests.error;
+  if(regularPeople.error)throw regularPeople.error;if(regularOrders.error)throw regularOrders.error;
   jbMealV14Staff=staff.data||[];jbMealV14Guests=guests.data||[];
+  jbMealRegularPeople=regularPeople.data||[];jbMealRegularOrders=regularOrders.data||[];
   if(!settings.error)jbMealV14Settings=String(settings.data?.dinner_deadline||'16:00').slice(0,5);
-  jbMealV14MakeDraft();
+  jbMealV14MakeDraft();jbMealRegularMessage='';
  }catch(e){jbMealV14Error='식사 데이터 조회 실패: '+String(e.message||e)}
  finally{jbMealV14Loading=false;if(view==='meals')dashboard()}
 }
@@ -2840,12 +2853,17 @@ function jbMealPage(){
    const dinnerStaff=jbMealV14Staff.filter(r=>r.meal_date===jbMealV14Day&&r.meal_type==='dinner');
    const names=arr=>arr.map(x=>safe(records.employees.find(e=>e.id===x.employee_id)?.name||'직원')).join(', ')||'없음';
    const guests=jbMealV14Guests.filter(r=>r.meal_date===jbMealV14Day);
-   html+=`<div class="meal-panel"><h3>${safe(jbMealV14Day)} 식사 내역</h3><p><b>점심 ${c.lunch}명</b> · 농원 ${c.places['농원']} / 동이 ${c.places['동이']} / 쇼가든 ${c.places['쇼가든']}</p><p><b>저녁 ${c.dinner}명</b> (장소 구분 없음)</p><details><summary>직원·외부 상세 보기</summary><p>점심 직원: ${names(lunchStaff)}</p><p>저녁 직원: ${names(dinnerStaff)}</p>${guests.map(g=>`<p>외부 ${safe(g.guest_kind)} ${g.headcount}명 · ${g.meal_type==='lunch'?safe(g.location):'저녁'} ${safe(g.note||'')}</p>`).join('')}</details><button type="button" class="alt" id="meal-edit-selected">이 날짜 신청 관리</button></div>`;
+   html+=`<div class="meal-panel"><h3>${safe(jbMealV14Day)} 식사 내역</h3><p><b>점심 ${c.lunch}명</b> · 농원 ${c.places['농원']} / 동이 ${c.places['동이']} / 쇼가든 ${c.places['쇼가든']}</p><p><b>저녁 ${c.dinner}명</b> (장소 구분 없음)</p><details><summary>직원·외부 상세 보기</summary><p>점심 직원: ${names(lunchStaff)}</p><p>저녁 직원: ${names(dinnerStaff)}</p>
+ <p>점심 고정 인원: ${jbMealRegularOrders.filter(r=>r.meal_date===jbMealV14Day&&r.meal_type==='lunch').map(r=>safe(jbMealRegularPeople.find(x=>x.id===r.regular_id)?.display_name||'고정 인원')).join(', ')||'없음'}</p>
+ <p>저녁 고정 인원: ${jbMealRegularOrders.filter(r=>r.meal_date===jbMealV14Day&&r.meal_type==='dinner').map(r=>safe(jbMealRegularPeople.find(x=>x.id===r.regular_id)?.display_name||'고정 인원')).join(', ')||'없음'}</p>${guests.map(g=>`<p>외부 ${safe(g.guest_kind)} ${g.headcount}명 · ${g.meal_type==='lunch'?safe(g.location):'저녁'} ${safe(g.note||'')}</p>`).join('')}</details><button type="button" class="alt" id="meal-edit-selected">이 날짜 신청 관리</button></div>`;
   }else html+='<p class="srv-muted">달력의 날짜를 선택하면 해당 날짜의 상세 내역이 표시됩니다.</p>';
  }else{
   const people=jbMealV14People(),draft=jbMealV14Draft||{};
   const selectPlaces=location=>jbMealV14Places.map(p=>`<option value="${p}" ${location===p?'selected':''}>${p}</option>`).join('');
   const rows=people.map(e=>{const x=draft[e.id]||{eating:false,location:'농원'};return `<tr><td><b>${safe(e.name)}</b> ${safe(e.position||'')}</td><td><input type="checkbox" class="meal-person" data-id="${safe(e.id)}" ${x.eating?'checked':''} aria-label="식사 신청"></td><td>${jbMealV14Type==='dinner'?(x.eating?'신청':'미신청'):`<select class="meal-place" data-id="${safe(e.id)}" ${x.eating?'':'disabled'}>${selectPlaces(x.location)}</select>`}</td></tr>`}).join('');
+  const regulars=jbMealRegularPeople.filter(r=>r.active&&r.department_id===jbMealV14Dept);
+  const regularRows=regulars.map(r=>{const d=jbMealRegularDraft[r.id]||{eating:false,location:r.default_location||'농원'};return `<tr><td><b>${safe(r.display_name)}</b></td><td><input type="checkbox" class="meal-regular-on" data-id="${safe(r.id)}" ${d.eating?'checked':''} aria-label="고정 인원 식사 신청"></td><td>${jbMealV14Type==='dinner'?(d.eating?'신청':'미신청'):`<select class="meal-regular-place" data-id="${safe(r.id)}" ${d.eating?'':'disabled'}>${selectPlaces(d.location)}</select>`}</td></tr>`}).join('');
+  const regularManage=profile.app_role==='owner'||profile.app_role==='manager';
   const guests=jbMealV14Guests.filter(g=>g.meal_date===jbMealV14Date&&g.meal_type===jbMealV14Type&&g.department_id===jbMealV14Dept);
   const c=jbMealV14Counts(jbMealV14Date);
   html+=`<div class="meal-formbar"><label>날짜<input type="date" id="meal-date" value="${safe(jbMealV14Date)}"></label><label>점심·저녁<select id="meal-kind"><option value="lunch" ${jbMealV14Type==='lunch'?'selected':''}>점심</option><option value="dinner" ${jbMealV14Type==='dinner'?'selected':''}>저녁</option></select></label><label>신청 부서<select id="meal-dept">${depts.map(d=>`<option value="${safe(d.id)}" ${d.id===jbMealV14Dept?'selected':''}>${safe(d.name)}</option>`).join('')}</select></label></div>
@@ -2853,13 +2871,26 @@ function jbMealPage(){
   <div class="meal-toolbar"><button type="button" class="alt" id="meal-all-yes">전체 식사</button><button type="button" class="alt" id="meal-all-no">전체 미식사</button><button type="button" class="alt" id="meal-copy-yesterday">전날 복사</button></div>
   <table class="meal-list"><thead><tr><th>직원</th><th>신청</th><th>${jbMealV14Type==='lunch'?'점심 장소':'저녁'}</th></tr></thead><tbody>${rows||'<tr><td colspan="3">직원 명단 없음</td></tr>'}</tbody></table>
   <div class="meal-toolbar"><button type="button" id="meal-save-staff" ${jbMealV14Saving?'disabled':''}>직원 명단 저장</button><span class="srv-muted">${jbMealV14Dirty?'저장하지 않은 변경 사항 있음':'변경 후 저장하세요.'}</span></div>
-  <div class="meal-panel"><h3>외부 인원 추가</h3><div class="meal-guest-grid"><label>구분<select id="meal-guest-kind"><option>외부 작업자</option><option>방문객</option><option>협력업체</option><option>기타</option></select></label><label>인원수<input type="number" id="meal-guest-count" min="1" max="200" value="1"></label>${jbMealV14Type==='lunch'?`<label>점심 장소<select id="meal-guest-place">${selectPlaces('동이')}</select></label>`:''}<label>비고<input type="text" id="meal-guest-note" maxlength="100" placeholder="외부 인원 설명"></label></div><button type="button" class="alt" id="meal-add-guest">외부 인원 저장</button>
+  <div class="meal-panel"><h3>고정 식사 인원</h3><p class="srv-muted">정식 직원으로 등록하지 않아도 한 번 등록하면 매일 명단에 나타납니다. 실제 식수에는 해당 날짜를 선택해 저장한 경우만 반영됩니다.</p>
+  <div class="meal-toolbar"><button type="button" class="alt" id="meal-regular-default">기본 식사 명단 불러오기</button><button type="button" class="alt" id="meal-regular-copy">전날 고정 인원 복사</button></div>
+  <table class="meal-list"><thead><tr><th>고정 인원</th><th>신청</th><th>${jbMealV14Type==='lunch'?'점심 장소':'저녁'}</th></tr></thead><tbody>${regularRows||'<tr><td colspan="3">등록된 고정 인원이 없습니다.</td></tr>'}</tbody></table>
+  <div class="meal-toolbar"><button type="button" id="meal-regular-save" ${jbMealRegularSaving?'disabled':''}>고정 인원 신청 저장</button><span class="srv-muted">${jbMealRegularDirty?'저장하지 않은 변경 사항이 있습니다.':'일자별 신청만 저장됩니다.'}</span></div>
+  ${regularManage?`<details class="srv-line"><summary><b>고정 식사 인원 등록·관리</b></summary>
+  <div class="meal-guest-grid"><label>이름 또는 구분명<input type="text" id="meal-regular-name" maxlength="80" placeholder="예: 동이 고정 작업자 1"></label>
+  <label>기본 점심 장소<select id="meal-regular-place-default">${selectPlaces('농원')}</select></label>
+  <label><input type="checkbox" id="meal-regular-lunch-default" style="width:auto" checked> 기본 점심 명단 포함</label>
+  <label><input type="checkbox" id="meal-regular-dinner-default" style="width:auto"> 기본 저녁 명단 포함</label></div>
+  <button type="button" id="meal-regular-add" class="alt">고정 인원 등록</button>
+  ${regulars.map(r=>`<div class="srv-row" style="justify-content:space-between;padding:9px 0;border-bottom:1px solid #dbe8e2"><span>${safe(r.display_name)} · ${safe(r.default_location)} / 기본 점심 ${r.default_lunch?'O':'X'} · 저녁 ${r.default_dinner?'O':'X'}</span><button type="button" class="alt meal-regular-disable" data-id="${safe(r.id)}">비활성화</button></div>`).join('')}
+  </details>`:''}
+  ${jbMealRegularMessage?`<p class="srv-good">${safe(jbMealRegularMessage)}</p>`:''}</div>
+  <div class="meal-panel"><h3>일시 외부 인원 추가</h3><div class="meal-guest-grid"><label>구분<select id="meal-guest-kind"><option>외부 작업자</option><option>방문객</option><option>협력업체</option><option>기타</option></select></label><label>인원수<input type="number" id="meal-guest-count" min="1" max="200" value="1"></label>${jbMealV14Type==='lunch'?`<label>점심 장소<select id="meal-guest-place">${selectPlaces('동이')}</select></label>`:''}<label>비고<input type="text" id="meal-guest-note" maxlength="100" placeholder="외부 인원 설명"></label></div><button type="button" class="alt" id="meal-add-guest">외부 인원 저장</button>
   ${guests.map(g=>`<div class="srv-line">${safe(g.guest_kind)} ${g.headcount}명 ${g.meal_type==='lunch'?'· '+safe(g.location):''} · ${safe(g.note||'')} <button type="button" class="alt meal-delete-guest" data-id="${safe(g.id)}">삭제</button></div>`).join('')}</div>
   <div class="meal-panel"><b>선택 날짜 전체 식수</b><p>점심 ${c.lunch}명 · 저녁 ${c.dinner}명</p><p>점심 장소: 농원 ${c.places['농원']}명 · 동이 ${c.places['동이']}명 · 쇼가든 ${c.places['쇼가든']}명</p></div>`;
  }
  return html+'</section>';
 }
-function jbMealV14WarnDirty(){return !jbMealV14Dirty||confirm('저장하지 않은 변경 사항이 있습니다. 이동할까요?')}
+function jbMealV14WarnDirty(){return !(jbMealV14Dirty||jbMealRegularDirty)||confirm('저장하지 않은 변경 사항이 있습니다. 이동할까요?')}
 function jbMealV14ChangeMonth(n){const [y,m]=jbMealV14Month.split('-').map(Number),d=new Date(y,m-1+n,1);jbMealV14Month=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');jbMealV14Day='';void jbMealV14Load()}
 async function jbMealV14SaveStaff(){
  if(jbMealV14Saving||jbMealV14Loading)return;
@@ -2901,6 +2932,11 @@ document.addEventListener('change',e=>{
   else if(profile?.app_role==='owner'||t.value===profile?.department_id)jbMealV14Dept=t.value;
   jbMealV14MakeDraft();dashboard();return
  }
+ if(t.classList.contains('meal-regular-on')||t.classList.contains('meal-regular-place')){
+  const d=jbMealRegularDraft?.[t.dataset.id];if(!d)return;
+  if(t.classList.contains('meal-regular-on'))d.eating=t.checked;else d.location=t.value;
+  jbMealRegularDirty=true;dashboard();return
+ }
  if(t.classList.contains('meal-person')||t.classList.contains('meal-place')){
   const d=jbMealV14Draft?.[t.dataset.id];if(!d)return;
   if(t.classList.contains('meal-person'))d.eating=t.checked;else d.location=t.value;
@@ -2916,11 +2952,63 @@ document.addEventListener('click',e=>{
  if(b.dataset.mealDate){jbMealV14Day=jbMealV14Day===b.dataset.mealDate?'':b.dataset.mealDate;dashboard();return}
  if(b.id==='meal-edit-selected'){jbMealV14Screen='apply';jbMealV14Date=jbMealV14Day; jbMealV14MakeDraft();dashboard();return}
  if(b.id==='meal-all-yes'||b.id==='meal-all-no'){for(const e of jbMealV14People())if(jbMealV14Draft[e.id])jbMealV14Draft[e.id].eating=b.id==='meal-all-yes';jbMealV14Dirty=true;dashboard();return}
+ if(b.id==='meal-regular-default'){if(jbMealRegularDirty&&!confirm('고정 인원 변경 초안을 기본 명단으로 교체할까요?'))return;for(const r of jbMealRegularPeople.filter(x=>x.active&&x.department_id===jbMealV14Dept)){jbMealRegularDraft[r.id]={eating:jbMealV14Type==='lunch'?r.default_lunch:r.default_dinner,location:r.default_location||'농원'}}jbMealRegularDirty=true;dashboard();return}
+ if(b.id==='meal-regular-copy')return void jbMealRegularCopyYesterday();
+ if(b.id==='meal-regular-save')return void jbMealRegularSave();
+ if(b.id==='meal-regular-add')return void jbMealRegularManage(null,false);
+ if(b.classList.contains('meal-regular-disable'))return void jbMealRegularManage(b.dataset.id,true);
  if(b.id==='meal-copy-yesterday')return void jbMealV14CopyYesterday();
  if(b.id==='meal-save-staff')return void jbMealV14SaveStaff();
  if(b.id==='meal-add-guest')return void jbMealV14AddGuest();
  if(b.classList.contains('meal-delete-guest'))return void jbMealV14RemoveGuest(b.dataset.id);
 });
+
+
+async function jbMealRegularSave(){
+ if(jbMealRegularSaving||jbMealV14Loading)return;
+ const items=jbMealRegularPeople.filter(x=>x.active&&x.department_id===jbMealV14Dept).map(r=>({regular_id:r.id,eating:!!jbMealRegularDraft?.[r.id]?.eating,location:jbMealV14Type==='lunch'?(jbMealRegularDraft?.[r.id]?.location||'농원'):null}));
+ jbMealRegularSaving=true;dashboard();
+ try{
+  const {error}=await supa.rpc('jb_meal_regular_save_v15',{p_date:jbMealV14Date,p_meal:jbMealV14Type,p_department:jbMealV14Dept,p_items:items});
+  if(error)throw error;
+  await jbMealV14Load();
+  jbMealRegularMessage='고정 인원 신청이 서버에 저장되었습니다.';
+  dashboard();
+ }catch(e){jbMealV14Error='고정 식사 인원 저장 실패: '+String(e.message||e);dashboard()}
+ finally{jbMealRegularSaving=false}
+}
+async function jbMealRegularManage(id,deactivate){
+ if(!['owner','manager'].includes(profile?.app_role))return;
+ const existing=id?jbMealRegularPeople.find(x=>x.id===id):null;
+ if(id&&!existing)return;
+ if(deactivate&&!confirm('고정 식사 명단에서 비활성화할까요? 이미 저장된 과거 신청 내역은 유지됩니다.'))return;
+ const name=existing?.display_name||shell.querySelector('#meal-regular-name')?.value.trim()||'';
+ const place=existing?.default_location||shell.querySelector('#meal-regular-place-default')?.value||'농원';
+ const lunch=existing?.default_lunch??!!shell.querySelector('#meal-regular-lunch-default')?.checked;
+ const dinner=existing?.default_dinner??!!shell.querySelector('#meal-regular-dinner-default')?.checked;
+ if(!name||name.length>80){alert('고정 인원 이름을 1~80자로 입력하세요.');return}
+ try{
+  const {error}=await supa.rpc('jb_meal_regular_manage_v15',{p_id:id||null,p_department:jbMealV14Dept,p_name:name,p_place:place,p_lunch:lunch,p_dinner:dinner,p_active:!deactivate});
+  if(error)throw error;
+  await jbMealV14Load();
+  jbMealRegularMessage=deactivate?'고정 인원을 비활성화했습니다.':'고정 식사 인원을 등록했습니다.';
+  dashboard();
+ }catch(e){jbMealV14Error='고정 명단 관리 실패: '+String(e.message||e);dashboard()}
+}
+async function jbMealRegularCopyYesterday(){
+ if(!jbMealV14WarnDirty())return;
+ const d=new Date(jbMealV14Date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-1);
+ const previous=d.toISOString().slice(0,10);
+ const list=jbMealRegularOrders.filter(r=>r.meal_date===previous&&r.meal_type===jbMealV14Type);
+ const eligible=jbMealRegularPeople.filter(x=>x.active&&x.department_id===jbMealV14Dept);
+ if(!eligible.some(x=>list.some(r=>r.regular_id===x.id))){jbMealV14Error='전날 저장된 고정 인원 신청이 없습니다.';dashboard();return}
+ jbMealRegularDraft={};
+ for(const e of eligible){
+  const r=list.find(x=>x.regular_id===e.id);
+  jbMealRegularDraft[e.id]={eating:!!r,location:r?.location||e.default_location||'농원'};
+ }
+ jbMealRegularDirty=true;jbMealV14Error='전날 고정 인원 명단을 불러왔습니다. 저장 버튼을 눌러 확정하세요.';dashboard();
+}
 
 function jbTabPictogram(name){const shapes={"home":"<path d=\"m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z\"/>","inbox":"<path d=\"M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9z\"/><path d=\"M10 21h4\"/>","tasks":"<rect x=\"5\" y=\"3\" width=\"14\" height=\"19\" rx=\"2\"/><path d=\"M9 3V2h6v1\"/><path d=\"m8 10 2 2 3-3M8 17l2 2 3-3M15 11h2M15 18h2\"/>","events":"<rect x=\"3\" y=\"5\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M7 3v4M17 3v4M3 10h18\"/><path d=\"M8 14h2M14 14h2M8 18h2M14 18h2\"/>","archive":"<rect x=\"3\" y=\"4\" width=\"18\" height=\"5\" rx=\"1\"/><path d=\"M5 9v12h14V9M10 14h4\"/>","attendance":"<path d=\"M8 20c-3 0-5 0-6-1v-2a5 5 0 0 1 7-4\"/><circle cx=\"6\" cy=\"8\" r=\"3\"/><circle cx=\"18\" cy=\"8\" r=\"3\"/><path d=\"M16 13a5 5 0 0 1 6 4v2c-1 1-3 1-6 1\"/><circle cx=\"12\" cy=\"10\" r=\"3\"/><path d=\"M5 22v-3a7 7 0 0 1 14 0v3z\"/>","leaves":"<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 6v6l4 2\"/><circle cx=\"18.5\" cy=\"18.5\" r=\"4\" fill=\"currentColor\" stroke=\"none\"/><path d=\"m16.7 18.5 1.1 1.1 2.4-2.4\" stroke=\"#ffffff\" stroke-width=\"1.3\"/>","announcements":"<path d=\"m3 11 13-6v14L3 13z\"/><path d=\"M16 9c3 0 5 2 5 3s-2 3-5 3M6 14l2 6h3l-2-7\"/>","employees":"<path d=\"M10 6h11v14H10\"/><path d=\"M10 10h11\"/><circle cx=\"6\" cy=\"9\" r=\"3\"/><path d=\"M1 21v-2a5 5 0 0 1 10 0v2\"/>","meals":"<path d=\"M3 12a9 9 0 0 0 18 0zM3 12h18\"/><path d=\"M6 9c0-2 2-2 2-4M11 9c0-2 2-2 2-4M16 9c0-2 2-2 2-4\"/><path d=\"M21 3v18M18.5 3v6M16.5 3v6\"/>","more":"<path d=\"M4 6h16M4 12h16M4 18h16\"/>"};return '<svg class="jb-pictogram" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'+(shapes[name]||shapes.more)+'</svg>'}
 function dashboard(){
