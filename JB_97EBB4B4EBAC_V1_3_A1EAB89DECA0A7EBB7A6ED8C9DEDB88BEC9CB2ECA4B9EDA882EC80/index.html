@@ -1307,12 +1307,12 @@ function taskEditor(){
  if(!canRegisterTask())return '<div class="srv-note">현재 업무 등록 권한이 없습니다.</div>';
  const own=profile.app_role==='staff';
  const deptOpts=records.departments.filter(d=>!own||d.id===profile.department_id);
- const personOpts=records.employees.filter(e=>!own||e.department_id===profile.department_id);
+ const personOpts=jbStaffDisplaySorted(records.employees.filter(e=>!own||e.department_id===profile.department_id));
  return `<details class="srv-editor" id="srvTaskEditor" open><summary style="font-size:16px;padding:10px;color:#106444">＋ 새 업무 등록 (서버 저장) · 펼치기/접기</summary><div style="padding:12px;border:1px solid #cfddd4;border-radius:10px;margin:12px 0;background:#f7faf7"><b>🔁 반복 업무 간편 등록</b><p class="srv-muted" style="margin:5px 0">저장된 양식을 선택하면 제목과 설명이 자동 입력됩니다. 양식은 내 계정에 저장됩니다.</p><select id="srvTaskTemplateSelect" style="width:100%;padding:10px;margin:7px 0"><option value="">반복 업무 선택</option>${repeatTemplates.map(t=>`<option value="${safe(t.id)}">${safe(t.title)}</option>`).join('')}</select><div class="srv-row"><button type="button" id="srvTemplateApply" class="alt">선택 양식 적용</button><button type="button" id="srvTemplateDelete" class="alt">선택 양식 삭제</button><button type="button" id="srvTemplateReload" class="alt">목록 새로고침</button></div><p class="srv-muted">${safe(repeatMessage||(!repeatTemplatesLoaded?'처음 이용할 때 목록을 불러옵니다.':''))}</p></div><form id="srvTaskForm" style="margin-top:12px"><label>업무 제목 *</label><input id="srvTaskTitle" maxlength="120" required placeholder="예: 농원 관수 점검"><label>업무 설명</label><textarea id="srvTaskDescription" placeholder="해야 할 작업을 간략히 작성" style="width:100%;min-height:75px;padding:10px;border:1px solid #cadbd1;border-radius:8px"></textarea><label>부서 *</label><select id="srvTaskDepartment" required style="width:100%;padding:10px;margin-bottom:10px">${deptOpts.map(d=>`<option value="${safe(d.id)}">${safe(d.name)}</option>`).join('')}</select><label>담당 직원 *</label><select id="srvTaskAssignee" required style="width:100%;padding:10px;margin-bottom:10px"></select><label>완료 예정일 (선택)</label><input id="srvTaskDue" type="date"><label>업무 등록 후 보고 대상</label><select id="srvTaskReportTarget"><option value="none">별도 보고 없음</option><option value="manager">관리자에게 확인 요청</option><option value="owner">대표님께 바로 보고</option></select><label style="display:block;margin-top:10px">업무 지시 사진 (선택 · 최대 5장)</label><input id="srvTaskCreatePhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple><button type="button" class="alt" onclick="jbOpenCamera(this, 'srvTaskCreatePhotos')">📷 사진 바로 찍기</button><p class="srv-muted">등록과 동시에 업무 사진에 첨부됩니다. JPG·PNG·WEBP, 장당 원본 25MB 이하.</p><div class="srv-row" style="margin:10px 0"><button type="button" class="alt" id="srvTemplateSave">현재 제목·설명을 반복 양식으로 저장</button></div><p class="srv-error" id="srvTaskTemplateMsg"></p><button type="submit" id="srvTaskSave">업무 등록하기</button><p class="srv-error" id="srvTaskMsg"></p></form></details>`;
 }
 function updateAssignees(){
  const select=shell.querySelector('#srvTaskAssignee'),dept=shell.querySelector('#srvTaskDepartment');if(!select||!dept)return;
- const people=profile.app_role==='staff'?records.employees.filter(e=>e.id===profile.id&&e.department_id===dept.value):records.employees.filter(e=>e.department_id===dept.value);
+ const people=jbStaffDisplaySorted(profile.app_role==='staff'?records.employees.filter(e=>e.id===profile.id&&e.department_id===dept.value):records.employees.filter(e=>e.department_id===dept.value));
  select.innerHTML=people.length?people.map(e=>`<option value="${safe(e.id)}" ${e.id===profile.id?'selected':''}>${safe(e.name)} ${safe(e.position||'')}</option>`).join(''):'<option value="">부서에 등록된 직원 없음</option>';
  if(people.some(e=>e.id===profile.id))select.value=profile.id;
 }
@@ -1526,6 +1526,37 @@ function jbReportPanel(){
  <div class="jb-report-actions"><button type="button" class="alt" data-jb-report-nav="inbox">🔔 알림 확인</button><button type="button" class="alt" data-jb-report-nav="tasks">내 업무 조회</button></div></section>`;
 }
 
+// V1.3: 직원 표시 직함순(권한/DB 저장 순서와 독립적인 화면 정렬).
+const jbStaffTitleOrder=['대표','센터장','부장','과장','대리','주임','사원'];
+function jbStaffTitleRank(person){
+ const position=String(person?.position||person?.rank||'').replace(/\s+/g,'').trim();
+ if(position){
+  const index=jbStaffTitleOrder.findIndex(title=>position.includes(title));
+  if(index>=0)return index;
+ }
+ // 직함 누락 시에만 owner 계정을 대표로 표시하되, manager를 직함으로 추측하지 않습니다.
+ return !position&&person?.app_role==='owner'?0:jbStaffTitleOrder.length;
+}
+function jbStaffDisplayCompare(a,b){
+ const byRank=jbStaffTitleRank(a)-jbStaffTitleRank(b);
+ return byRank||String(a?.name||a?.display_name||a?.label||'').localeCompare(String(b?.name||b?.display_name||b?.label||''),'ko');
+}
+function jbStaffDisplaySorted(people){return [...(people||[])].sort(jbStaffDisplayCompare)}
+function jbRosterDisplayCompare(a,b){
+ const employeeA=records.employees.find(e=>e.id===a?.employee_id);
+ const employeeB=records.employees.find(e=>e.id===b?.employee_id);
+ return jbStaffDisplayCompare(employeeA||{name:a?.temporary_name||a?.label||''},
+                              employeeB||{name:b?.temporary_name||b?.label||''});
+}
+function jbHomeNameDisplayCompare(a,b){
+ const resolve=label=>{
+   const text=String(label||'');
+   const employee=records.employees.find(e=>text===e.name||text.startsWith(e.name+' ('));
+   return employee||{name:text};
+ };
+ return jbStaffDisplayCompare(resolve(a),resolve(b));
+}
+
 function homePage(){
  const date=localDay(homeDay==='tomorrow'?1:0);
  const days=records.attendance.filter(a=>a.work_date===date);
@@ -1547,7 +1578,7 @@ function homePage(){
  
  if(!openDept&&canAll&&departments.length)html+='<p class="srv-muted">부서를 선택하면 해당 직원의 업무를 볼 수 있습니다. 아래에는 조회 가능한 전체 직원이 표시됩니다.</p>';
  html+=`<div class="srv-dept-strip">${departments.map(d=>`<button type="button" class="srv-dept-button ${openDept===d.id?'selected':''}" data-dept="${safe(d.id)}">${safe(d.name)}</button>`).join('')}</div>`;
- let shown=records.employees.filter(e=>!openDept||e.department_id===openDept);
+ let shown=jbStaffDisplaySorted(records.employees.filter(e=>!openDept||e.department_id===openDept));
  if(!shown.length)html+='<p class="srv-muted">현재 조회 가능한 직원이 없습니다.</p>';
  for(const e of shown){
  const assigned=records.tasks.filter(t=>t.assignee_id===e.id&&t.status!=='completed');
@@ -1581,7 +1612,7 @@ function homePage(){
   for(const e of records.employees){if(leaveIds.has(e.id))addGroup('휴무',e.name);else if(halfByEmployee.has(e.id)&&!days.some(a=>a.employee_id===e.id))addGroup(records.departments.find(d=>d.id===e.department_id)?.name||'장소 미지정',e.name+' ('+halfByEmployee.get(e.id)+')');}
  html+=`<section class="srv-home-section"><h2>2. 오늘 출근 인원</h2><div class="srv-row srv-day-tabs"><button data-day="today" class="${homeDay==='today'?'srv-chosen':''}">오늘</button><button data-day="tomorrow" class="${homeDay==='tomorrow'?'srv-chosen':''}">내일 출근 인원</button></div><h3>${safe(date)} 인원배치</h3>`;
  if(!grouped.size)html+='<p class="srv-warning-text">'+safe(date)+' 날짜에 조회된 서버 인원배치가 없습니다. 오늘·내일 전환은 작동하지만 표시할 배치 데이터가 없는 상태입니다. 기존 V5.2 가상 명단은 가져오지 않았습니다.</p>';
- for(const [place,names] of grouped)html+=`<p class="srv-place-line"><b>${safe(place)} :</b> ${safe([...new Set(names)].join(', '))}</p>`;
+ for(const [place,names] of grouped)html+=`<p class="srv-place-line"><b>${safe(place)} :</b> ${safe([...new Set(names)].sort(jbHomeNameDisplayCompare).join(', '))}</p>`;
  const selectedNote=(records.notes||[]).find(n=>n.work_date===date);if(selectedNote)html+='<div class="srv-note"><b>추가 작업 안내</b><div>'+safe(selectedNote.note)+'</div></div>';
  html+='<p class="srv-muted">선택 날짜: '+safe(date)+' · 서버 배치 '+days.length+'건 · 승인 휴무 '+leaveIds.size+'명</p>';
  html+='</section>';
@@ -1596,7 +1627,7 @@ const rosterStatuses={working:'출근',trip:'출장',off:'휴무'};
 function dayShift(day,amount){const d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+amount);return d.toISOString().slice(0,10)}
 function rosterCanEdit(){return ['owner','manager'].includes(profile?.app_role)}
 // V6.4.1: 인원배치는 대표·관리자가 전체 직원 명단을 편집합니다. 업무 등록/휴무 승인의 부서 제한은 유지합니다.
-function rosterPeople(){return records.employees;}
+function rosterPeople(){return jbStaffDisplaySorted(records.employees)}
 function rosterApplicableLeaves(date){return [...new Map([...approvedRosterLeaves,...rosterDateLeaveRows].filter(l=>l.request_type==='leave'&&l.approval_status==='approved'&&l.start_date<=date&&l.end_date>=date).map(l=>[l.id,l])).values()];}
 function rosterLeaveIds(date){return new Set(rosterApplicableLeaves(date).filter(jbFullDayLeave).map(l=>l.employee_id));}
 function rosterHalfCategory(employeeId,date){const cats=rosterApplicableLeaves(date).filter(l=>l.employee_id===employeeId&&['half_am','half_pm'].includes(l.leave_category));return cats.length?cats.map(l=>l.leave_category==='half_am'?'오전 반차':'오후 반차').join(' · '):'';}
@@ -1688,13 +1719,13 @@ function rosterEditor(){
  const groupNames=[...departments,...new Set(working.map(i=>deptNameForRoster(rosterDraft[i])).filter(n=>!departments.includes(n)))];
  html+='<div class="jb-roster-category" data-status="working"><div class="jb-roster-category-header"><span>출근 · 부서별 명단</span><span>'+working.length+'명</span></div>';
  groupNames.forEach(name=>{
-   const members=working.filter(i=>deptNameForRoster(rosterDraft[i])===name).sort((a,b)=>String(rosterDraft[a].label||'').localeCompare(String(rosterDraft[b].label||''),'ko'));
+   const members=working.filter(i=>deptNameForRoster(rosterDraft[i])===name).sort((a,b)=>jbRosterDisplayCompare(rosterDraft[a],rosterDraft[b]));
    if(!members.length)return;
    html+=`<details class="jb-roster-fold"><summary><span>${safe(name)}</span><span>${members.length}명 <span aria-hidden="true">▾</span></span></summary><div class="jb-roster-fold-body">${members.map(rosterPersonCard).join('')}</div></details>`;
  });
  html+='</div>';
  for(const status of ['trip','off']){
-   const members=activeIndexes.filter(i=>displayStatus(rosterDraft[i])===status).sort((a,b)=>String(rosterDraft[a].label||'').localeCompare(String(rosterDraft[b].label||''),'ko'));
+   const members=activeIndexes.filter(i=>displayStatus(rosterDraft[i])===status).sort((a,b)=>jbRosterDisplayCompare(rosterDraft[a],rosterDraft[b]));
    html+=`<details class="jb-roster-fold jb-roster-status-fold" data-status="${status}"><summary><span>${safe(rosterStatuses[status])} 명단</span><span>${members.length}명 <span aria-hidden="true">▾</span></span></summary><div class="jb-roster-fold-body">${members.map(rosterPersonCard).join('')||'<p class="srv-muted">해당 인원이 없습니다.</p>'}</div></details>`;
  }
  if(can)html+=`<button class="alt" id="srvRosterAdd">＋ 임시 인원 추가</button>`;
@@ -2051,7 +2082,7 @@ let directorySearch='',directoryStatus='all',directoryRole='all';
 function employeeManagement(){
  const isOwner=profile.app_role==='owner';
  const isEditor=['owner','manager'].includes(profile.app_role);
- const people=isEditor?(records.managedEmployees||[]):(records.employees||[]);
+ const people=jbStaffDisplaySorted(isEditor?(records.managedEmployees||[]):(records.employees||[]));
  const phoneFor=id=>(records.staffPhones||[]).find(x=>x.employee_id===id)?.phone||'';
  const depts=records.departments||[];
  const activeCount=people.filter(p=>p.active===true).length;
@@ -2619,7 +2650,7 @@ function archivePage(){
 
 // V6.6.7.9 읽기 전용 업무 현황 보고. 업무시간은 상태 이력 기반이며 실제 근로시간을 뜻하지 않습니다.
 function taskReportRows(){
- return records.employees.map(e=>{
+ return jbStaffDisplaySorted(records.employees).map(e=>{
   const ts=records.tasks.filter(t=>t.assignee_id===e.id);
   let running=0,holding=0,unverified=0;
   ts.forEach(t=>{const c=taskClock(t);if(c.valid){running+=c.running;holding+=c.holding;}else unverified++;});
@@ -2793,7 +2824,7 @@ let jbMealCutoffSaving=false,jbMealCutoffMessage='';
 const jbMealV14Places=['농원','동이','쇼가든'];
 function jbMealV14MonthBounds(month){const [y,m]=month.split('-').map(Number);const last=new Date(y,m,0).getDate();return [month+'-01',month+'-'+String(last).padStart(2,'0'),last]}
 function jbMealV14AuthorizedDepartments(){return records.departments||[]}
-function jbMealV14People(){return (records.employees||[]).filter(e=>e.active!==false&&e.department_id===jbMealV14Dept)}
+function jbMealV14People(){return jbStaffDisplaySorted((records.employees||[]).filter(e=>e.active!==false&&e.department_id===jbMealV14Dept))}
 function jbMealV14MakeDraft(){
  const members={};for(const e of jbMealV14People()){
   const found=jbMealV14Staff.find(r=>r.meal_date===jbMealV14Date&&r.meal_type===jbMealV14Type&&r.employee_id===e.id);
