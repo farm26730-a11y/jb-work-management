@@ -1447,8 +1447,11 @@ async function jbOpenReportTask(id,employeeId){
    if(archiveDetailRecord?.id===id&&!archiveDetailError)await jbAutoAcknowledgeTask(id);
    return;
  }
- view='home';openDept=task.department_id||'';homeSelectedEmployee=task.assignee_id||employeeId;
- homeSelectedTask=id;mobileMoreOpen=false;dashboard();
+ const assigneeId=task.assignee_id||employeeId||'';
+ const assignee=(records.employees||[]).find(e=>e.id===assigneeId);
+ // 업무 부서가 아닌 실제 담당 직원의 소속 부서 기준으로 상세 조회.
+ view='home';openDept=assignee?.department_id||'';
+ homeSelectedEmployee=assigneeId;homeSelectedTask=id;mobileMoreOpen=false;dashboard();
  const detail=shell.querySelector('.srv-home-task-detail[data-task-id="'+id+'"]');
  if(detail){detail.scrollIntoView({behavior:'smooth',block:'center'});await jbAutoAcknowledgeTask(id);}
  else alert('해당 업무가 홈 상세 목록에 표시되지 않았습니다.');
@@ -1494,8 +1497,10 @@ function homePage(){
  
  if(!openDept&&canAll&&departments.length)html+='<p class="srv-muted">부서를 선택하면 해당 직원의 업무를 볼 수 있습니다. 아래에는 조회 가능한 전체 직원이 표시됩니다.</p>';
  html+=`<div class="srv-dept-strip">${departments.map(d=>`<button type="button" class="srv-dept-button ${openDept===d.id?'selected':''}" data-dept="${safe(d.id)}">${safe(d.name)}</button>`).join('')}</div>`;
- // 홈 직원별 목록에서도 승인된 종일 휴무 또는 휴무 배치 직원을 마지막에 표시합니다.
+ // 직원별 업무 현황은 휴무 여부와 관계없이 직함순으로 표시합니다.
  // 직원별 업무 현황: 휴무 여부로 위치를 바꾸지 않고 직함순, 동일 직함은 이름순.
+ // 저장된 부서 필터에 해당하는 직원이 없으면 빈 화면 대신 전체 명단으로 복귀.
+ if(openDept&&!records.employees.some(e=>e.department_id===openDept))openDept='';
  let shown=records.employees.filter(e=>!openDept||e.department_id===openDept);
  shown=[...shown].sort(jbRosterPersonCompare);
  if(!shown.length)html+='<p class="srv-muted">현재 조회 가능한 직원이 없습니다.</p>';
