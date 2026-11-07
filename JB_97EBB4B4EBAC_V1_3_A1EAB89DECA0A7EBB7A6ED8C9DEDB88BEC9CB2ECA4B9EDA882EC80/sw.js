@@ -1,7 +1,8 @@
+// JB 업무관리 V1.3 아이콘 갱신 2026-11-08: 푸시 수신·클릭 로직 유지
 self.addEventListener('push',event=>{
  let data={};try{data=event.data?.json()||{}}catch(_){data={body:event.data?.text()||'새 업무 알림이 있습니다.'}}
  const title=String(data.title||'JB 업무관리');
- const opts={body:String(data.body||'새 알림이 있습니다.'),tag:String(data.tag||'jb-general'),renotify:false,icon:'./jb-icon-192.png',badge:'./jb-icon-192.png',data:{url:String(data.url||'./index.html')}};
+ const opts={body:String(data.body||'새 알림이 있습니다.'),tag:String(data.tag||'jb-general'),renotify:false,icon:'./jb-work-icon.svg',badge:'./jb-notification-icon.svg',data:{url:String(data.url||'./index.html')}};
  event.waitUntil(self.registration.showNotification(title,opts));
 });
 self.addEventListener('notificationclick',event=>{
