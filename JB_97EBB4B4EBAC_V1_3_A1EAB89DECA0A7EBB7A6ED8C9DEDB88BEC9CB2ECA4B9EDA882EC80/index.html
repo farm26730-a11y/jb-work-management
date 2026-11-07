@@ -1494,7 +1494,15 @@ function homePage(){
  
  if(!openDept&&canAll&&departments.length)html+='<p class="srv-muted">부서를 선택하면 해당 직원의 업무를 볼 수 있습니다. 아래에는 조회 가능한 전체 직원이 표시됩니다.</p>';
  html+=`<div class="srv-dept-strip">${departments.map(d=>`<button type="button" class="srv-dept-button ${openDept===d.id?'selected':''}" data-dept="${safe(d.id)}">${safe(d.name)}</button>`).join('')}</div>`;
+ // 홈 직원별 목록에서도 승인된 종일 휴무 또는 휴무 배치 직원을 마지막에 표시합니다.
  let shown=records.employees.filter(e=>!openDept||e.department_id===openDept);
+ shown=[...shown].sort((a,b)=>{
+  const off=e=>{
+   const att=days.find(x=>x.employee_id===e.id);
+   return leaveIds.has(e.id)||(!halfByEmployee.has(e.id)&&att?.status==='off');
+  };
+  return Number(off(a))-Number(off(b));
+ });
  if(!shown.length)html+='<p class="srv-muted">현재 조회 가능한 직원이 없습니다.</p>';
  for(const e of shown){
  const assigned=records.tasks.filter(t=>t.assignee_id===e.id&&t.status!=='completed');
@@ -1528,7 +1536,8 @@ function homePage(){
   for(const e of records.employees){if(leaveIds.has(e.id))addGroup('휴무',e.name);else if(halfByEmployee.has(e.id)&&!days.some(a=>a.employee_id===e.id))addGroup(records.departments.find(d=>d.id===e.department_id)?.name||'장소 미지정',e.name+' ('+halfByEmployee.get(e.id)+')');}
  html+=`<section class="srv-home-section"><h2>2. 오늘 출근 인원</h2><div class="srv-row srv-day-tabs"><button data-day="today" class="${homeDay==='today'?'srv-chosen':''}">오늘</button><button data-day="tomorrow" class="${homeDay==='tomorrow'?'srv-chosen':''}">내일 출근 인원</button></div><h3>${safe(date)} 인원배치</h3>`;
  if(!grouped.size)html+='<p class="srv-warning-text">'+safe(date)+' 날짜에 조회된 서버 인원배치가 없습니다. 오늘·내일 전환은 작동하지만 표시할 배치 데이터가 없는 상태입니다. 기존 V5.2 가상 명단은 가져오지 않았습니다.</p>';
- for(const [place,names] of grouped)html+=`<p class="srv-place-line"><b>${safe(place)} :</b> ${safe([...new Set(names)].join(', '))}</p>`;
+ // 출근/장소/출장 명단은 기존 순서를 유지하고 휴무 그룹만 마지막으로 표시.
+ for(const [place,names] of [...grouped].sort((a,b)=>Number(a[0]==='휴무')-Number(b[0]==='휴무')))html+=`<p class="srv-place-line"><b>${safe(place)} :</b> ${safe([...new Set(names)].join(', '))}</p>`;
  const selectedNote=(records.notes||[]).find(n=>n.work_date===date);if(selectedNote)html+='<div class="srv-note"><b>추가 작업 안내</b><div>'+safe(selectedNote.note)+'</div></div>';
  html+='<p class="srv-muted">선택 날짜: '+safe(date)+' · 서버 배치 '+days.length+'건 · 승인 휴무 '+leaveIds.size+'명</p>';
  html+='</section>';
