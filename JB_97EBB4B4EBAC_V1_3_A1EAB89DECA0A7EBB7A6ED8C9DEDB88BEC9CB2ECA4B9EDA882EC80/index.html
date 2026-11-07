@@ -1495,14 +1495,9 @@ function homePage(){
  if(!openDept&&canAll&&departments.length)html+='<p class="srv-muted">부서를 선택하면 해당 직원의 업무를 볼 수 있습니다. 아래에는 조회 가능한 전체 직원이 표시됩니다.</p>';
  html+=`<div class="srv-dept-strip">${departments.map(d=>`<button type="button" class="srv-dept-button ${openDept===d.id?'selected':''}" data-dept="${safe(d.id)}">${safe(d.name)}</button>`).join('')}</div>`;
  // 홈 직원별 목록에서도 승인된 종일 휴무 또는 휴무 배치 직원을 마지막에 표시합니다.
+ // 직원별 업무 현황: 휴무 여부로 위치를 바꾸지 않고 직함순, 동일 직함은 이름순.
  let shown=records.employees.filter(e=>!openDept||e.department_id===openDept);
- shown=[...shown].sort((a,b)=>{
-  const off=e=>{
-   const att=days.find(x=>x.employee_id===e.id);
-   return leaveIds.has(e.id)||(!halfByEmployee.has(e.id)&&att?.status==='off');
-  };
-  return Number(off(a))-Number(off(b));
- });
+ shown=[...shown].sort(jbRosterPersonCompare);
  if(!shown.length)html+='<p class="srv-muted">현재 조회 가능한 직원이 없습니다.</p>';
  for(const e of shown){
  const assigned=records.tasks.filter(t=>t.assignee_id===e.id&&t.status!=='completed');
@@ -1550,7 +1545,7 @@ function homePage(){
 // JB 업무관리 | V5.6 서버 인원배치 초안 및 저장
 const rosterStatuses={working:'출근',trip:'출장',off:'휴무'};
 /* 인원배치 고정 표시 규칙: 농원 → 밭 → 사무실 → 동이 → 쇼가든 → 기타 → 출장 → 휴무 */
-const jbRosterPositionPriority=['대표','회장','사장','부사장','전무','상무','이사','본부장','부장','실장','차장','과장','대리','주임','계장','반장','팀장','사원','직원'];
+const jbRosterPositionPriority=['대표','회장','사장','부사장','전무','상무','이사','본부장','센터장','부장','실장','차장','과장','대리','주임','계장','반장','팀장','사원','직원'];
 function jbRosterPositionRank(position){
  const p=String(position||'').replace(/\s+/g,'');
  const n=jbRosterPositionPriority.findIndex(x=>p.includes(x));
