@@ -1769,8 +1769,9 @@ function leavePage(){
    buttons.push(`<button class="alt" data-leave-cancel="${safe(r.id)}">신청 취소</button>`);
   }
   if(own&&r.approval_status==='approved'&&!changing.has(r.id)){
-   buttons.push(`<button class="alt" data-leave-approved-edit="${safe(r.id)}">변경 요청</button>`);
-   buttons.push(`<button class="alt" data-leave-approved-cancel="${safe(r.id)}">취소 요청</button>`);
+   const managerLeave=profile.app_role==='manager'&&r.request_type==='leave';
+   buttons.push(`<button class="alt" data-leave-approved-edit="${safe(r.id)}">${managerLeave?'수정':'변경 요청'}</button>`);
+   buttons.push(`<button class="alt" data-leave-approved-cancel="${safe(r.id)}">${managerLeave?'삭제':'취소 요청'}</button>`);
   }
   if(reviewerCandidate(r)){
    buttons.push(`<button data-leave-review="${safe(r.id)}" data-decision="approved">승인</button>`);
@@ -1807,7 +1808,7 @@ function leavePage(){
  html+=display.slice((page-1)*size,page*size).map(x=>x.html).join('')||'<div class="jb-leave-empty">표시할 신청 내역이 없습니다.</div>';
  if(pages>1)html+=`<div class="srv-row" style="justify-content:center;margin-top:10px"><button class="alt" data-leave-page="others" data-page="${page-1}" ${page===1?'disabled':''}>이전</button><span class="srv-muted">${page} / ${pages} · ${display.length}건</span><button class="alt" data-leave-page="others" data-page="${page+1}" ${page===pages?'disabled':''}>다음</button></div>`;
  html+='</section>';
-if(showMine)html+=`<section class="srv-home-section"><h2>${leaveEditingId?(leaveApprovedEditing?'승인된 신청 변경 요청':'신청 수정'):'휴무·연장근무 신청'}</h2><form id="srvLeaveForm"><label for="srvLeaveType">신청 종류</label><select id="srvLeaveType"><option value="leave">휴무</option><option value="annual">연차</option><option value="half">반차</option><option value="overtime">연장근무</option></select><div id="jbLeaveCategoryBox" style="display:none"><label for="srvLeaveCategory">반차 시간대</label><select id="srvLeaveCategory"><option value="half_am">오전 반차</option><option value="half_pm">오후 반차</option></select><p class="srv-muted">반차는 하루만 선택하며 출근 인원에 포함됩니다.</p></div><label for="srvLeaveStart">시작일</label><input type="date" id="srvLeaveStart" required value="${localDay()}"><label for="srvLeaveEnd">종료일</label><input type="date" id="srvLeaveEnd" required value="${localDay()}"><div id="srvOtTimeFields" style="display:none"><div class="srv-row" style="gap:12px;flex-wrap:wrap"><label style="flex:1;min-width:130px">연장근무 시작 시간<input type="time" id="srvOtStart" value="18:00"></label><label style="flex:1;min-width:130px">연장근무 종료 시간<input type="time" id="srvOtEnd" value="20:00"></label></div><p class="srv-muted">연장근무는 같은 날 시작·종료하며, 종료 시각은 시작보다 늦어야 합니다.</p></div><label for="srvLeaveReason">신청 사유</label><textarea id="srvLeaveReason" maxlength="500" placeholder="신청 사유를 입력하세요" required></textarea><div class="srv-row" style="margin-top:10px"><button type="submit" ${leaveSaving?'disabled':''}>${leaveSaving?'처리 중...':leaveEditingId?(leaveApprovedEditing?'변경 승인 요청':'수정 내용 저장'):'신청서 서버 제출'}</button>${leaveEditingId?'<button type="button" class="alt" id="srvLeaveEditCancel">수정 닫기</button>':''}</div></form></section>`;
+if(showMine)html+=`<section class="srv-home-section"><h2>${leaveEditingId?(leaveApprovedEditing?(isManager?'내 휴무 수정':'승인된 신청 변경 요청'):'신청 수정'):'휴무·연장근무 신청'}</h2><form id="srvLeaveForm"><label for="srvLeaveType">신청 종류</label><select id="srvLeaveType"><option value="leave">휴무</option><option value="annual">연차</option><option value="half">반차</option><option value="overtime">연장근무</option></select><div id="jbLeaveCategoryBox" style="display:none"><label for="srvLeaveCategory">반차 시간대</label><select id="srvLeaveCategory"><option value="half_am">오전 반차</option><option value="half_pm">오후 반차</option></select><p class="srv-muted">반차는 하루만 선택하며 출근 인원에 포함됩니다.</p></div><label for="srvLeaveStart">시작일</label><input type="date" id="srvLeaveStart" required value="${localDay()}"><label for="srvLeaveEnd">종료일</label><input type="date" id="srvLeaveEnd" required value="${localDay()}"><div id="srvOtTimeFields" style="display:none"><div class="srv-row" style="gap:12px;flex-wrap:wrap"><label style="flex:1;min-width:130px">연장근무 시작 시간<input type="time" id="srvOtStart" value="18:00"></label><label style="flex:1;min-width:130px">연장근무 종료 시간<input type="time" id="srvOtEnd" value="20:00"></label></div><p class="srv-muted">연장근무는 같은 날 시작·종료하며, 종료 시각은 시작보다 늦어야 합니다.</p></div><label for="srvLeaveReason">신청 사유</label><textarea id="srvLeaveReason" maxlength="500" placeholder="신청 사유를 입력하세요" required></textarea><div class="srv-row" style="margin-top:10px"><button type="submit" ${leaveSaving?'disabled':''}>${leaveSaving?'처리 중...':leaveEditingId?(leaveApprovedEditing?(isManager?'수정 내용 저장':'변경 승인 요청'):'수정 내용 저장'):(isManager?'휴무 등록 / 신청서 제출':'신청서 서버 제출')}</button>${leaveEditingId?'<button type="button" class="alt" id="srvLeaveEditCancel">수정 닫기</button>':''}</div></form></section>`;
  return html;
 }
 async function leaveSubmit(ev){
@@ -1820,20 +1821,28 @@ async function leaveSubmit(ev){
  if(type==='leave'&&!Object.keys(jbLeaveCategoryNames).includes(category)){alert('휴무 구분을 선택하세요.');return;}
  if(type==='leave'&&category.startsWith('half_')&&start!==end){alert('반차는 하루만 신청할 수 있습니다.');return;}
  if(type==='overtime'&&(!otStart||!otEnd||otEnd<=otStart||start!==end)){alert('연장근무는 동일 날짜에 시작·종료하며 종료 시간이 시작 시간보다 늦어야 합니다.');return;}
- if(!confirm(`${type==='leave'?jbLeaveCategoryNames[category]:leaveTypes[type]} ${start} ~ ${end}${type==='overtime'?' ('+otStart+'~'+otEnd+')':''} 신청서를 제출할까요?`))return;
+ const managerLeave=profile.app_role==='manager'&&type==='leave';
+ if(profile.app_role==='manager'&&leaveApprovedEditing&&type!=='leave'){alert('승인된 휴무는 휴무·연차·반차로만 변경할 수 있습니다.');return;}
+ if(!confirm(managerLeave?`${jbLeaveCategoryNames[category]} ${start} ~ ${end} ${leaveEditingId?'수정':'즉시 승인 등록'}할까요?`:`${type==='leave'?jbLeaveCategoryNames[category]:leaveTypes[type]} ${start} ~ ${end}${type==='overtime'?' ('+otStart+'~'+otEnd+')':''} 신청서를 제출할까요?`))return;
  const insertRow={employee_id:profile.id,request_type:type,start_date:start,end_date:end,reason,approval_status:'pending'};
  if(type==='leave')insertRow.leave_category=category;
  if(type==='overtime'){insertRow.overtime_start_time=otStart;insertRow.overtime_end_time=otEnd;}
  leaveSaving=true;leaveFeedback='';
- const {error}=leaveEditingId ? await supa.rpc(leaveApprovedEditing?'jb_request_approved_leave_change':'jb_update_own_leave_request',leaveApprovedEditing?{p_request_id:leaveEditingId,p_action:'edit',p_request_type:type,p_start_date:start,p_end_date:end,p_reason:reason,p_overtime_start_time:type==='overtime'?otStart:null,p_overtime_end_time:type==='overtime'?otEnd:null}:{p_request_id:leaveEditingId,p_request_type:type,p_start_date:start,p_end_date:end,p_reason:reason,p_overtime_start_time:type==='overtime'?otStart:null,p_overtime_end_time:type==='overtime'?otEnd:null}) : await supa.from('jb_leave_requests').insert(insertRow);
+ const {error}=managerLeave
+  ? leaveEditingId
+    ? await supa.rpc('jb_manager_update_own_leave_v13',{p_request_id:leaveEditingId,p_start_date:start,p_end_date:end,p_reason:reason,p_leave_category:category})
+    : await supa.rpc('jb_manager_create_own_leave_v13',{p_start_date:start,p_end_date:end,p_reason:reason,p_leave_category:category})
+  : leaveEditingId
+    ? await supa.rpc(leaveApprovedEditing?'jb_request_approved_leave_change':'jb_update_own_leave_request',leaveApprovedEditing?{p_request_id:leaveEditingId,p_action:'edit',p_request_type:type,p_start_date:start,p_end_date:end,p_reason:reason,p_overtime_start_time:type==='overtime'?otStart:null,p_overtime_end_time:type==='overtime'?otEnd:null}:{p_request_id:leaveEditingId,p_request_type:type,p_start_date:start,p_end_date:end,p_reason:reason,p_overtime_start_time:type==='overtime'?otStart:null,p_overtime_end_time:type==='overtime'?otEnd:null})
+    : await supa.from('jb_leave_requests').insert(insertRow);
  leaveSaving=false;
  if(error){alert('신청 실패: '+error.message);dashboard();return;}
- if(leaveEditingId&&!leaveApprovedEditing&&type==='leave'){
+ if(leaveEditingId&&!leaveApprovedEditing&&type==='leave'&&!managerLeave){
   const categoryUpdate=await supa.rpc('jb_set_leave_category_v13',{p_request_id:leaveEditingId,p_category:category});
   if(categoryUpdate.error){alert('신청 내용은 저장됐지만 휴무 구분 저장에 실패했습니다: '+categoryUpdate.error.message);}
  }
  
- const wasEdit=!!leaveEditingId,wasApproved=leaveApprovedEditing;leaveEditingId=null;leaveApprovedEditing=false;await loadData();leaveFeedback=wasApproved?'변경 승인 요청이 접수되었습니다. 원본 승인 내역은 승인자가 처리하기 전까지 유지됩니다.':wasEdit?'수정 내용이 저장되었으며 다시 승인 대기 상태입니다.':'신청서가 서버에 접수되었습니다.';view='leaves';dashboard();
+ const wasEdit=!!leaveEditingId,wasApproved=leaveApprovedEditing;leaveEditingId=null;leaveApprovedEditing=false;await loadData();leaveFeedback=managerLeave?(wasEdit?'휴무 수정이 즉시 반영되었습니다.':'휴무가 즉시 승인되어 반영되었습니다.'):(wasApproved?'변경 승인 요청이 접수되었습니다. 원본 승인 내역은 승인자가 처리하기 전까지 유지됩니다.':wasEdit?'수정 내용이 저장되었으며 다시 승인 대기 상태입니다.':'신청서가 서버에 접수되었습니다.');view='leaves';dashboard();
 }
 function leaveBeginEdit(id,approved=false){
  const r=records.leaves.find(x=>x.id===id&&x.employee_id===profile.id);
@@ -1863,10 +1872,11 @@ async function leaveCancelApproved(id){
   if(leaveSaving)return;
   const r=records.leaves.find(x=>x.id===id&&x.employee_id===profile.id&&x.approval_status==='approved');
   if(!r){alert('승인 완료된 본인 신청만 요청할 수 있습니다.');return;}
-  if(!confirm('승인된 휴무·연장근무의 취소를 승인자에게 요청할까요? 승인 전까지 기존 승인 내역은 유지됩니다.'))return;
+  const managerLeave=profile.app_role==='manager'&&r.request_type==='leave';
+  if(!confirm(managerLeave?'본인 휴무를 삭제할까요? 휴무 현황에서 즉시 제외되고 이력은 보존됩니다.':'승인된 휴무·연장근무의 취소를 승인자에게 요청할까요? 승인 전까지 기존 승인 내역은 유지됩니다.'))return;
   leaveSaving=true;leaveFeedback='';dashboard();
-  try{const {error}=await supa.rpc('jb_request_approved_leave_change',{p_request_id:id,p_action:'cancel'});if(error)throw error;
-    await loadData();leaveFeedback='취소 승인 요청을 등록했습니다. 승인자 처리가 필요합니다.';
+  try{const {error}=managerLeave?await supa.rpc('jb_manager_delete_own_leave_v13',{p_request_id:id}):await supa.rpc('jb_request_approved_leave_change',{p_request_id:id,p_action:'cancel'});if(error)throw error;
+    await loadData();leaveFeedback=managerLeave?'본인 휴무를 삭제했습니다. 이력은 보존됩니다.':'취소 승인 요청을 등록했습니다. 승인자 처리가 필요합니다.';
   }catch(e){alert('취소 승인 요청 실패: '+String(e.message||e)+'\n오류 코드: '+String(e.code||'없음')+'\n휴무 원본 상태 및 변경 요청 권한을 확인하세요.');}
   finally{leaveSaving=false;dashboard();}
 }
