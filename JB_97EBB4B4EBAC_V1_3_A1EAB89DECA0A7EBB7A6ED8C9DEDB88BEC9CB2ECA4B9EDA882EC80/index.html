@@ -2795,7 +2795,7 @@ const jbMealTrialKey=()=>['jb_meal_trial_v13',profile?.id||'no-user',jbMealTrial
 function jbMealTrialBlank(){return {members:{},guests:[]}}
 function jbMealTrialLoad(){
  jbMealTrialDate=jbMealTrialDate||localDay();
- jbMealTrialDept=jbMealTrialDept||profile?.department_id||records.departments[0]?.id||'';
+ jbMealTrialDept=(profile?.app_role!=='owner'?profile?.department_id:(jbMealTrialDept||profile?.department_id||records.departments[0]?.id))||'';
  try{jbMealTrialData=JSON.parse(localStorage.getItem(jbMealTrialKey())||'null')||jbMealTrialBlank()}
  catch(_){jbMealTrialData=jbMealTrialBlank()}
  jbMealTrialChanged=false;
@@ -2817,7 +2817,7 @@ function jbMealTrialStats(){
 }
 function jbMealTrialPage(){
  if(!jbMealTrialData)jbMealTrialLoad();
- const teams=records.departments||[],people=jbMealTrialPeople();
+ const teams=(records.departments||[]).filter(d=>profile?.app_role==='owner'||d.id===profile?.department_id),people=jbMealTrialPeople();
  const opts=place=>jbMealTrialPlaces.map(p=>`<option value="${safe(p)}" ${p===place?'selected':''}>${safe(p)}</option>`).join('');
  const rows=people.map(e=>{const m=jbMealTrialMember(e);return `<tr><td><b>${safe(e.name)} ${safe(e.position||'')}</b></td><td><input type="checkbox" class="jm-person-on" data-id="${safe(e.id)}" ${m.on?'checked':''} style="width:19px;height:19px" aria-label="식사 신청"></td><td>${m.on?`<select class="jm-person-place" data-id="${safe(e.id)}" aria-label="식사 장소">${opts(m.place)}</select>`:'<span style="color:#899d95">미식사</span>'}</td></tr>`}).join('');
  const guests=(jbMealTrialData.guests||[]).map((g,i)=>`<div class="srv-row" style="justify-content:space-between;gap:8px;margin-top:8px;padding:8px;background:#f5faf7;border-radius:9px"><span>${safe(g.type)} ${g.count}명 · ${safe(g.place)} ${g.note?safe(g.note):''}</span><button class="jm-del-guest alt" data-index="${i}" type="button">삭제</button></div>`).join('');
@@ -2840,7 +2840,7 @@ document.addEventListener('change',event=>{
  if(view!=='meals'||!event.target.closest('#jbMealTrial'))return;
  const t=event.target;
  if(t.id==='jm-date'){const old=jbMealTrialDate;if(!jbMealTrialSwitch(t.value,jbMealTrialType))t.value=old;return}
- if(t.id==='jm-dept'){jbMealTrialDept=t.value;jbMealTrialRefresh();return}
+ if(t.id==='jm-dept'){if(profile?.app_role!=='owner'&&t.value!==profile?.department_id)return;jbMealTrialDept=t.value;jbMealTrialRefresh();return}
  const id=t.dataset.id;
  if(!id)return;
  const e=(records.employees||[]).find(p=>p.id===id);if(!e)return;
