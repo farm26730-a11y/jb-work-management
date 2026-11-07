@@ -1,5 +1,5 @@
 -- 설치용 / 시험 배포 전 Supabase 운영 DB 적용 필요
--- V1.3 일반 직원도 자기 부서 고정 식사 인원 '추가'만 허용.
+-- V1.3 일반 직원도 모든 부서의 고정 식사 인원 '추가' 허용.
 -- 기존 jb_meal_regular_manage_v15(대표/관리자 수정·비활성화)는 변경하지 않음.
 CREATE OR REPLACE FUNCTION public.jb_meal_regular_add_staff_v13(
  p_department uuid, p_name text, p_place text, p_lunch boolean, p_dinner boolean
@@ -16,10 +16,10 @@ BEGIN
  IF NOT FOUND OR v_actor.app_role NOT IN ('staff','manager','owner') THEN
   RAISE EXCEPTION '활성 직원 계정만 고정 인원을 추가할 수 있습니다' USING ERRCODE='42501';
  END IF;
- IF p_department IS NULL
-    OR (v_actor.app_role<>'owner' AND p_department IS DISTINCT FROM v_actor.department_id) THEN
-  RAISE EXCEPTION '소속 부서에만 고정 인원을 추가할 수 있습니다' USING ERRCODE='42501';
+ IF p_department IS NULL THEN
+  RAISE EXCEPTION '등록할 부서를 선택하세요' USING ERRCODE='42501';
  END IF;
+ -- 대표/관리자/직원 모두 다른 부서 고정 식사 인원 추가 가능.
  IF NOT EXISTS (SELECT 1 FROM public.jb_departments WHERE id=p_department) THEN
   RAISE EXCEPTION '등록되지 않은 부서입니다';
  END IF;
