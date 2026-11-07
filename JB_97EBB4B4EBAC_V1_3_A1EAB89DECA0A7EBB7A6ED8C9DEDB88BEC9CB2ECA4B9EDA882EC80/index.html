@@ -2999,7 +2999,9 @@ async function jbMealRegularCopyYesterday(){
  if(!jbMealV14WarnDirty())return;
  const d=new Date(jbMealV14Date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-1);
  const previous=d.toISOString().slice(0,10);
- const list=jbMealRegularOrders.filter(r=>r.meal_date===previous&&r.meal_type===jbMealV14Type);
+ const response=await supa.from('jb_meal_regular_orders_v15').select('regular_id,location').eq('meal_date',previous).eq('meal_type',jbMealV14Type);
+ if(response.error){jbMealV14Error='전날 고정 인원 조회 실패: '+response.error.message;dashboard();return}
+ const list=response.data||[];
  const eligible=jbMealRegularPeople.filter(x=>x.active&&x.department_id===jbMealV14Dept);
  if(!eligible.some(x=>list.some(r=>r.regular_id===x.id))){jbMealV14Error='전날 저장된 고정 인원 신청이 없습니다.';dashboard();return}
  jbMealRegularDraft={};
