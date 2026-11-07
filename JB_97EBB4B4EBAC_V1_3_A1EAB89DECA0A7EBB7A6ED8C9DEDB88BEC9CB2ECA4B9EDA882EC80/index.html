@@ -1454,7 +1454,12 @@ async function jbOpenReportTask(id,employeeId){
  homeSelectedEmployee=assigneeId;homeSelectedTask=id;mobileMoreOpen=false;dashboard();
  const detail=shell.querySelector('.srv-home-task-detail[data-task-id="'+id+'"]');
  if(detail){detail.scrollIntoView({behavior:'smooth',block:'center'});await jbAutoAcknowledgeTask(id);}
- else alert('해당 업무가 홈 상세 목록에 표시되지 않았습니다.');
+ else{
+  openDept='';dashboard();
+  const retry=shell.querySelector('.srv-home-task-detail[data-task-id="'+id+'"]');
+  if(retry){retry.scrollIntoView({behavior:'smooth',block:'center');await jbAutoAcknowledgeTask(id);}
+  else alert('업무 상세를 표시하지 못했습니다. 담당 직원과 조회 권한을 확인해 주세요.');
+ }
 }
 function jbReportPanel(){
  const my=jbReportTasks(),today=localDay(),requests=jbPendingReportRequests();
@@ -1496,13 +1501,13 @@ function homePage(){
  html+=`<section class="srv-home-section"><h2>1. 직원별 업무 현황</h2><p class="srv-muted">미완료 업무 ${records.tasks.filter(t=>t.status!=='completed').length}건 · 진행중 직원 ${activePeople}명 · 부서를 누르면 목록을 좁혀볼 수 있습니다.</p><p class="srv-muted">제목은 <b>진행중</b> 업무만 오른쪽 표시하며, 예정·보류 업무 제목은 표시하지 않습니다.</p>`;
  
  if(!openDept&&canAll&&departments.length)html+='<p class="srv-muted">부서를 선택하면 해당 직원의 업무를 볼 수 있습니다. 아래에는 조회 가능한 전체 직원이 표시됩니다.</p>';
- html+=`<div class="srv-dept-strip">${departments.map(d=>`<button type="button" class="srv-dept-button ${openDept===d.id?'selected':''}" data-dept="${safe(d.id)}">${safe(d.name)}</button>`).join('')}</div>`;
- // 직원별 업무 현황은 휴무 여부와 관계없이 직함순으로 표시합니다.
- // 직원별 업무 현황: 휴무 여부로 위치를 바꾸지 않고 직함순, 동일 직함은 이름순.
- // 저장된 부서 필터에 해당하는 직원이 없으면 빈 화면 대신 전체 명단으로 복귀.
  if(openDept&&!records.employees.some(e=>e.department_id===openDept))openDept='';
- let shown=records.employees.filter(e=>!openDept||e.department_id===openDept);
- shown=[...shown].sort(jbRosterPersonCompare);
+ html+=`<div class="srv-dept-strip"><button type="button" class="srv-dept-button ${!openDept?'selected':''}" data-dept="">전체 직원</button>${departments.map(d=>`<button type="button" class="srv-dept-button ${openDept===d.id?'selected':''}" data-dept="${safe(d.id)}">${safe(d.name)}</button>`).join('')}</div>`;
+ // 직원 카드는 기본 전체 표시. 휴무 여부와 무관하게 직함순 정렬.
+ const allHomeEmployees=[...(records.employees||[])];
+ let shown=openDept?allHomeEmployees.filter(e=>e.department_id===openDept):allHomeEmployees;
+ if(!shown.length&&allHomeEmployees.length){openDept='';shown=allHomeEmployees;}
+ shown.sort(jbRosterPersonCompare);
  if(!shown.length)html+='<p class="srv-muted">현재 조회 가능한 직원이 없습니다.</p>';
  for(const e of shown){
  const assigned=records.tasks.filter(t=>t.assignee_id===e.id&&t.status!=='completed');
@@ -2884,7 +2889,7 @@ function dashboard(){
  shell.querySelectorAll('.srv-comment-delete').forEach(b=>b.onclick=()=>changeServerComment(b.dataset.id,'delete'));
   shell.querySelectorAll('.srv-home-status').forEach(sel=>sel.onchange=()=>{const task=records.tasks.find(t=>t.id===sel.dataset.task);if(!task||task.assignee_id!==profile?.id){alert('본인 담당 업무만 상태를 변경할 수 있습니다.');dashboard();return;}changeTaskStatus(task.id,sel.value);});
  shell.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{homeDay=b.getAttribute('data-day');dashboard()});
- shell.querySelectorAll('[data-dept]').forEach(b=>b.onclick=()=>{openDept=openDept===b.dataset.dept?'':b.dataset.dept;dashboard()});
+ shell.querySelectorAll('[data-dept]').forEach(b=>b.onclick=()=>{const id=b.dataset.dept||'';openDept=id&&openDept!==id?id:'';homeSelectedEmployee=null;homeSelectedTask=null;dashboard()});
  shell.querySelectorAll('.srv-home-person-tasks').forEach(b=>b.onclick=()=>{
   const id=b.dataset.employee;homeSelectedEmployee=homeSelectedEmployee===id?null:id;homeSelectedTask=null;resetTaskPhoto();dashboard();
  });
