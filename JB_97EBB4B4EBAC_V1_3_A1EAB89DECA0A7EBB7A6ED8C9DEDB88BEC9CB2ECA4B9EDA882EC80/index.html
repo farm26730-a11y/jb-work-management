@@ -2722,8 +2722,16 @@ function jbInboxItems(){
    const applicant=employees.get(r.employee_id);
    const applicantRole=(records.employeeRoles||[]).find(x=>x.id===r.employee_id)?.app_role;
    if(r.can_review===true)
-    items.push({id:'pending:'+r.id,at:r.created_at||r.start_date,type:'승인 대기',title:(applicant?.name||'직원')+' · 승인 대기',detail:(r.start_date||'')+' ~ '+(r.end_date||''),target:'leaves'});
+    items.push({id:'pending:'+r.id,at:r.created_at||r.start_date,type:'휴무 승인 요청',title:(applicant?.name||'직원')+' · 휴무·근태 승인 대기',detail:(r.start_date||'')+' ~ '+(r.end_date||''),target:'home'});
   }
+ }
+ // 승인된 근태의 변경·취소 신청도 승인권자에게 알림센터에 표시합니다.
+ for(const c of records.leaveChanges||[]){
+  if(c.status!=='pending'||c.employee_id===profile.id||c.can_review!==true)continue;
+  const applicant=employees.get(c.employee_id);
+  items.push({id:'leave-change-pending:'+c.id,at:c.created_at||c.requested_at||new Date().toISOString(),
+   type:'근태 변경 승인 요청',title:(applicant?.name||'직원')+' · 근태 '+(c.action==='cancel'?'취소':'변경')+' 요청',
+   detail:'승인된 근태의 변경·취소 요청을 확인해 주세요.',target:'home'});
  }
   // V1.4: Report request notifications and acknowledgement results.
   const roleById=new Map((records.employeeRoles||[]).map(e=>[e.id,e]));
