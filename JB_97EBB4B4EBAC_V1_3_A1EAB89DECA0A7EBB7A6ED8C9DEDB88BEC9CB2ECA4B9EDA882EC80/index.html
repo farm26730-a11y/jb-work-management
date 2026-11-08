@@ -1345,6 +1345,7 @@ async function createTask(ev){
  jbValidateTaskAttachmentFiles(files);
  const {data,error}=await supa.from('jb_tasks').insert(row).select('id').single();
  if(error)throw error;
+ if(data?.id)void jbWakeServerPush('task',data.id);
  let photoError='';
  if(files.length){try{await jbUploadTaskAttachments(data.id,files)}catch(e){photoError=String(e.message||e)}}
  let reportError='';
@@ -2670,16 +2671,16 @@ function serverTaskDetails(t,readonly=false){
 }
 // Request fast push only after a successful server-side comment INSERT.
 // On-demand delivery is best-effort; the 1-minute scheduled sender is the fallback.
-async function jbWakeCommentPush(commentId){
- if(!commentId||location.protocol!=='https:'||!supa)return;
+async function jbWakeServerPush(type,eventId){
+ if(!['comment','task'].includes(type)||!eventId||location.protocol!=='https:'||!supa)return;
  try{
   const {data,error}=await supa.auth.getSession();
   if(error||!data?.session?.access_token)return;
-  await fetch('/.netlify/functions/push-comment-now',{
+  await fetch('/.netlify/functions/push-now',{
    method:'POST',headers:{
     'content-type':'application/json',
     authorization:'Bearer '+data.session.access_token
-   },body:JSON.stringify({commentId}),cache:'no-store'
+   },body:JSON.stringify({type,eventId}),cache:'no-store'
   });
  }catch(error){
   // Do not mark the comment itself as failed; scheduled dispatch remains available.
@@ -2713,7 +2714,7 @@ async function submitServerComment(ev){
    commentId=found.data?.[0]?.id;
   }catch(e){if(files.length)photoError=String(e.message||e);}
  }
- if(commentId)void jbWakeCommentPush(commentId);
+ if(commentId)void jbWakeServerPush('comment',commentId);
  if(files.length){try{
   if(!commentId)throw new Error('댓글은 저장됐지만 사진을 연결할 댓글 ID를 확인하지 못했습니다.');
   await jbUploadTaskAttachments(task_id,files,commentId);
