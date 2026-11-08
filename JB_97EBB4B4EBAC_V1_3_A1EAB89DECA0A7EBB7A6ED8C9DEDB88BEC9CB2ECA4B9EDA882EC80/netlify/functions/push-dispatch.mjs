@@ -22,7 +22,7 @@ export default async () => {
     const {data:claim,error:claimError}=await db.from('jb_push_outbox').update({attempts:(job.attempts||0)+1,last_error:null}).eq('id',job.id).is('sent_at',null).eq('attempts',job.attempts||0).select('id');
     if(claimError||!claim?.length){if(claimError)console.error('JB push claim failed',claimError.message);continue;}
     let delivered=0,errors=[];
-    const body=job.event_type==='task'?'새 업무 지시가 등록되었습니다.':job.event_type==='leave'?'근태 신청 또는 승인 관련 확인 사항이 있습니다.':'새 확인 요청이 등록되었습니다.';
+    const body=job.event_type==='task'?'새 업무 지시가 등록되었습니다.':job.event_type==='comment'?'담당 업무에 새 댓글이 등록되었습니다. 앱에서 내용을 확인하세요.':job.event_type==='leave'?'근태 신청 또는 승인 관련 확인 사항이 있습니다.':'새 확인 요청이 등록되었습니다.';
     for(const d of devices){try{
       await webpush.sendNotification({endpoint:d.endpoint,keys:{p256dh:d.p256dh,auth:d.auth_secret}},JSON.stringify({title:'JB 업무관리',body,tag:'jb-'+job.id,url:'./index.html'}),{TTL:3600});delivered++;
     }catch(e){errors.push(String(e.statusCode||'')+': '+String(e.message||e));
