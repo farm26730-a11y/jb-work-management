@@ -1,5 +1,8 @@
 // JB 업무관리 V1.3 — 동일 이벤트 푸시 중복 표시 방지
 // The server sends a stable tag (jb-<outbox UUID>) for each event.
+// The worker only changes notification handling, so activate the new handler promptly.
+self.addEventListener('install',event=>event.waitUntil(self.skipWaiting()));
+self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
 const jbPushInFlight=new Set();
 const JB_SEEN_CACHE='jb-push-seen-v1';
 const JB_SEEN_MS=6*60*60*1000;
