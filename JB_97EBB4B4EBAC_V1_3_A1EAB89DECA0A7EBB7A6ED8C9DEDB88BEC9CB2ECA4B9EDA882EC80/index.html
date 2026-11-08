@@ -1870,15 +1870,10 @@ async function rosterCopyPrev(){
    todayTemps.set(name,r);
   }
   const deletions=[...todayTemps.keys()].filter(name=>!names.has(name)).length;
-  const changes=previousRows.filter(r=>r.employee_id).length;
-  const promptText=previousDate+' 배치를 '+rosterDate+'에 복사할까요?\\n\\n'
-   +'· 전날 저장된 직원 배치 '+changes+'건 복사\\n'
-   +'· 전날 임시 인원 '+previousTemps.length+'명 복사(같은 이름은 기존 기록 수정)\\n'
-   +'· 오늘에만 저장된 임시 인원 '+deletions+'명은 저장 시 삭제\\n'
-   +'· 전날 기록이 없는 정규 직원의 오늘 배치는 유지\\n'
-   +'· 오늘의 추가 작업 안내는 유지\\n\\n'
-   +'현재 입력 중인 미저장 초안은 전날 배치로 대체됩니다. 실제 DB는 하단 저장 버튼을 누를 때 변경됩니다.';
-  if(!confirm(promptText.replace(/\\n/g,'\n')))return;
+  // 전날 배치 복사 안내는 두 줄만 표시합니다. 실제 변경은 최종 저장에서 이루어집니다.
+  const promptText=previousDate+' 배치를 '+rosterDate+'에 복사할까요? (저장 전 초안만 변경)\n'
+   +'현재 입력 내용을 대체하며, 오늘에만 있는 임시 인원 '+deletions+'명은 저장 시 삭제됩니다.';
+  if(!confirm(promptText))return;
   rosterRememberExpandedFolds();
   const approvedToday=rosterLeaveIds(rosterDate);
   // 이미 오늘 저장된 직원 ID를 재사용하므로 동일 날짜에 중복 INSERT하지 않습니다.
