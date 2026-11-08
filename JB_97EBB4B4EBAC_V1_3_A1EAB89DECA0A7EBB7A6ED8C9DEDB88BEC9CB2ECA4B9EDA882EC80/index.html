@@ -1360,6 +1360,7 @@ async function createTask(ev){
    if(check.error)reportError='보고 요청 저장 여부 확인 실패: '+check.error.message;
    else if(!(check.data||[]).some(x=>x.target_owner===(reportTarget==='owner')))
     reportError='보고 함수는 오류 없이 끝났지만 확인 요청 기록이 생성되지 않았습니다. Supabase 보고 함수 또는 RLS 설정 점검이 필요합니다.';
+    else void jbWakeServerPush('report',data.id);
   }
  }
  await loadData();view='tasks';dashboard();
@@ -2622,11 +2623,13 @@ async function jbUpdateTask(id){
    const notice='업무 수정 보고: '+title+' / '+(description||'설명 없음');
    const review=await supa.rpc('jb_submit_task_comment_report',{p_task_id:id,p_body:notice.slice(0,2000),p_request_review:true});
    if(review.error){await loadData();alert('업무 수정은 저장됐지만 확인 요청은 실패했습니다: '+review.error.message);return;}
+    void jbWakeServerPush('report',id);
   }
   if(ownerChecked){
    const note='업무 수정 보고: '+title+' / '+(description||'설명 없음');
    const ownerResult=await supa.rpc('jb_submit_task_owner_report_v14',{p_task_id:id,p_body:note.slice(0,2000)});
    if(ownerResult.error){await loadData();alert('업무 수정은 저장됐지만 대표님 확인 요청 등록은 실패했습니다: '+ownerResult.error.message);return;}
+    void jbWakeServerPush('report',id);
   }
   await loadData();alert(ownerChecked?'대표님 확인 요청을 등록했습니다.':reviewChecked?'업무를 수정하고 확인 요청을 등록했습니다.':'업무 내용을 수정했습니다.');
  }catch(e){msg.textContent='수정 실패: '+String(e.message||e);form.querySelectorAll('button').forEach(b=>b.disabled=false)}
@@ -2672,7 +2675,7 @@ function serverTaskDetails(t,readonly=false){
 // Request fast push only after a successful server-side comment INSERT.
 // On-demand delivery is best-effort; the 1-minute scheduled sender is the fallback.
 async function jbWakeServerPush(type,eventId){
- if(!['comment','task'].includes(type)||!eventId||location.protocol!=='https:'||!supa)return;
+ if(!['comment','task','report'].includes(type)||!eventId||location.protocol!=='https:'||!supa)return;
  try{
   const {data,error}=await supa.auth.getSession();
   if(error||!data?.session?.access_token)return;
@@ -2702,6 +2705,7 @@ async function submitServerComment(ev){
  const submittedAfter=new Date(Date.now()-5000).toISOString();
  const result=ownerChecked?await supa.rpc('jb_submit_task_owner_report_v14',{p_task_id:task_id,p_body:body}):checked?await supa.rpc('jb_submit_task_comment_report',{p_task_id:task_id,p_body:body,p_request_review:true}):await supa.from('jb_task_comments').insert({task_id,author_id:profile.id,body}).select('id').single();
  if(result.error)throw result.error;
+ if(checked||ownerChecked)void jbWakeServerPush('report',task_id);
  let photoError='',commentId=!checked&&!ownerChecked?result.data?.id:null;
  // Report RPCs also create a comment. Resolve the actual server-created ID
  // so duplicate wake-up requests cannot send an unrelated task's notification.
