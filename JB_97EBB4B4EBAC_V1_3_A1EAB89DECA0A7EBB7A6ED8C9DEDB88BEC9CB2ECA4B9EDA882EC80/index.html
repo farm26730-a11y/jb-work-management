@@ -1249,6 +1249,13 @@ async function loadData(){
     err+=(err?'\n':'')+title+' 조회 실패: '+r.error.message+' (이전 자료를 표시하지 않았습니다. 서버 새로고침으로 다시 시도하세요.)';
   }else records[r.key]=r.data||[];
  }
+ // 고정 댓글 조회 한도 밖의 최근 미확인 댓글은 ID로 보충해 홈에서 즉시 표시한다.
+ const missingCommentIds=[...new Set((records.commentAttention||[]).map(a=>a.comment_id).filter(id=>!(records.taskComments||[]).some(c=>c.id===id)))];
+ if(missingCommentIds.length){
+  const additional=await supa.from('jb_task_comments').select('id,task_id,author_id,body,created_at').in('id',missingCommentIds.slice(0,200));
+  if(additional.error)err+=(err?'\n':'')+'미확인 댓글 상세 조회 실패: '+additional.error.message;
+  else records.taskComments.push(...(additional.data||[]));
+ }
  // 로그인 권한과 무관하게 모든 활성 직원에게 동일한 승인 근태 배치 정보를 제공한다.
  // 신청·승인/반려 목록은 기존 권한별 records.leaves를 유지한다.
  const rosterResult=await supa.rpc('jb_approved_leave_roster_v13');
@@ -1586,6 +1593,7 @@ async function jbAcknowledgeComment(commentId){
    .select('acknowledged_at').eq('comment_id',commentId).eq('employee_id',profile.id).maybeSingle();
   if(check.error||!check.data?.acknowledged_at)throw Error('서버 확인 이력이 저장되지 않았습니다.');
   records.commentAttention=(records.commentAttention||[]).filter(a=>a.comment_id!==commentId);
+  await jbInboxMark(['comment:'+commentId]);
   dashboard();
  }catch(e){alert('댓글 확인 실패: '+String(e.message||e));dashboard();}
  finally{jbCommentAckBusy=false;}
