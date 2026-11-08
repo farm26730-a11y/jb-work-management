@@ -1095,6 +1095,11 @@ let approvedRosterLeaves=[]; // 전 직원 공통 승인 근태 배치 조회; �
 let rosterDate='',rosterDraft=[],rosterSaved=[],rosterNote='',rosterNoteSaved='',rosterNoteId=null,rosterMessage='',rosterLoading=false,rosterError='',rosterDirty=false;
 // V1.3 시험: 인원배치 그룹 펼침을 추가·삭제 시 유지합니다. 날짜 변경 시에는 초기화.
 let rosterExpandedFolds=new Set();
+// 임시 인원을 여러 명 연속 추가할 때 이름만 비우고 상태·장소를 유지합니다.
+let rosterQuickTempStatus='working',rosterQuickTempLocation='',rosterQuickTempFeedback='',rosterQuickTempAdded=0;
+function rosterQuickTempReset(){
+ rosterQuickTempStatus='working';rosterQuickTempLocation='';rosterQuickTempFeedback='';rosterQuickTempAdded=0;
+}
 function rosterRememberExpandedFolds(){
  if(view!=='attendance')return;
  const folds=shell.querySelectorAll('details[data-roster-fold-key]');
@@ -1829,7 +1834,7 @@ function rosterFromRows(rows,date){
  return [...people,...extras];
 }
 async function rosterOpen(date=localDay()){
- rosterExpandedFolds=new Set();rosterDate=date;rosterLoading=true;rosterError='';rosterMessage='';view='attendance';dashboard();
+ rosterExpandedFolds=new Set();rosterQuickTempReset();rosterDate=date;rosterLoading=true;rosterError='';rosterMessage='';view='attendance';dashboard();
  try{const data=await rosterGet(date);rosterDateLeaveRows=data.leaves;rosterSaved=data.rows;rosterDraft=rosterFromRows(data.rows,date);rosterNote=data.notes[0]?.note||'';rosterNoteSaved=rosterNote;rosterNoteId=data.notes[0]?.id||null;rosterDirty=false;/* V6.6.6.3: 날짜별 승인 휴무 조회가 전체 신청함(records.leaves)을 덮어쓰지 않도록 보호 */}
  catch(e){rosterDateLeaveRows=[];rosterError='서버 날짜별 조회 실패: '+e.message;rosterDraft=[]}
  rosterLoading=false;dashboard();
@@ -1874,6 +1879,48 @@ function rosterAddTemp(){
  const field=shell.querySelector('[data-roster-index="'+index+'"][data-roster-field="temporary_name"]');
  if(field){field.scrollIntoView({block:'center',behavior:'smooth'});field.focus({preventScroll:true});}
 }
+function rosterQuickTempAdd(event){
+ event.preventDefault();
+ if(!rosterCanEdit()||rosterLoading)return;
+ const form=shell.querySelector('#srvRosterQuickAdd');
+ if(!form)return;
+ const nameInput=form.querySelector('#srvRosterQuickNames');
+ const locationInput=form.querySelector('#srvRosterQuickLocation');
+ const statusInput=form.querySelector('#srvRosterQuickStatus');
+ const names=String(nameInput?.value||'').split(/[,，、]+/).map(v=>v.trim()).filter(Boolean);
+ const location=String(locationInput?.value||'').trim();
+ const status=String(statusInput?.value||'working');
+ rosterQuickTempStatus=status;rosterQuickTempLocation=location;
+ const feedback=form.querySelector('#srvRosterQuickFeedback');
+ const fail=message=>{
+  rosterQuickTempFeedback=message;
+  if(feedback){feedback.textContent=message;feedback.className='srv-error';}
+  if(!names.length||message.includes('중복'))nameInput?.focus();
+  else if(message.includes('장소'))locationInput?.focus();
+ };
+ if(!names.length){fail('임시 인원 이름을 입력하세요.');return;}
+ if(!['working','trip','off'].includes(status)){fail('근무 상태를 확인하세요.');return;}
+ if(status==='working'&&!location){fail('출근 인원의 근무 장소를 입력하세요.');return;}
+ // 다른 입력칸에서 변경한 내용도 초안에 보존하고, 기존 접힘/펼침을 유지.
+ rosterReadDraft();rosterRememberExpandedFolds();
+ const existing=new Set(rosterDraft.filter(r=>!r.employee_id&&!r._delete).map(r=>String(r.temporary_name||'').trim()).filter(Boolean));
+ const unique=new Set();
+ for(const name of names){
+  if(unique.has(name)||existing.has(name)){fail('중복된 임시 인원 이름입니다: '+name);return;}
+  unique.add(name);
+ }
+ for(const name of names)rosterDraft.push({
+  id:null,employee_id:null,temporary_name:name,label:name,status,
+  work_location:location,memo:'',exists:false,changed:true
+ });
+ rosterDirty=true;rosterQuickTempAdded+=names.length;
+ rosterQuickTempFeedback=names.length+'명 추가했습니다. 같은 장소에 더 추가하려면 이름만 입력하세요. (서버 저장 전)';
+ rosterError='';
+ dashboard();
+ // 입력 위치에 남아 다음 이름을 바로 입력할 수 있도록 합니다.
+ const next=shell.querySelector('#srvRosterQuickNames');
+ if(next)next.focus({preventScroll:true});
+}
 function rosterDropTemp(i){
  rosterReadDraft();rosterRememberExpandedFolds();
  const r=rosterDraft[i];if(!r||r.employee_id)return;
@@ -1888,6 +1935,16 @@ function rosterEditor(){
  if(rosterError)html+='<p class="srv-error">'+safe(rosterError)+'</p>';
  if(rosterMessage)html+='<p class="srv-good">'+safe(rosterMessage)+'</p>';
  const leave=rosterLeaveIds(rosterDate);
+ if(can)html+=`<form id="srvRosterQuickAdd" class="srv-note" style="margin:12px 0;padding:12px;border:1px solid #b9dec8;border-radius:12px">
+  <b>＋ 임시 인원 연속 추가</b><p class="roster-hint" style="margin:5px 0 8px">여러 명은 이름을 쉼표(,)로 구분하세요. 같은 근무 상태·장소로 한 번에 추가됩니다.</p>
+  <div class="srv-row" style="align-items:end;gap:8px;flex-wrap:wrap">
+   <label style="flex:1 1 150px;min-width:140px" for="srvRosterQuickNames">이름<input id="srvRosterQuickNames" autocomplete="off" placeholder="예: 김철수, 이영희"></label>
+   <label style="flex:0 1 110px" for="srvRosterQuickStatus">근무 상태<select id="srvRosterQuickStatus">${Object.entries(rosterStatuses).map(([k,v])=>`<option value="${k}" ${rosterQuickTempStatus===k?'selected':''}>${v}</option>`).join('')}</select></label>
+   <label style="flex:1 1 145px;min-width:135px" for="srvRosterQuickLocation">근무 장소<input id="srvRosterQuickLocation" autocomplete="off" placeholder="예: 농원" value="${safe(rosterQuickTempLocation)}"></label>
+  </div>
+  <div class="srv-row" style="margin-top:8px;align-items:center"><button type="submit">＋ 추가하고 다음 인원 입력</button><span class="roster-hint">이름 입력 후 Enter로도 추가 가능</span></div>
+  <p id="srvRosterQuickFeedback" class="${rosterQuickTempFeedback.startsWith('중복')||rosterQuickTempFeedback.includes('입력하세요')||rosterQuickTempFeedback.includes('확인하세요')?'srv-error':'srv-good'}" aria-live="polite" style="margin:6px 0 0">${safe(rosterQuickTempFeedback||'아래 배치 목록에 임시 인원이 추가됩니다. 날짜별 저장 버튼을 눌러야 확정됩니다.')}</p>
+ </form>`;
  if(!rows.length)html+='<p class="srv-muted">조회 가능한 직원이나 배치가 없습니다.</p>';
  const leaveSetForGrouping=rosterLeaveIds(rosterDate);
  // 먼저 승인 휴무를 적용한 다음 그룹을 정해 표기와 입력 상태가 일치하도록 합니다.
@@ -1923,7 +1980,7 @@ function rosterEditor(){
    const members=activeIndexes.filter(i=>displayStatus(rosterDraft[i])===status).sort((a,b)=>jbRosterDisplayCompare(rosterDraft[a],rosterDraft[b]));
    html+=`<details class="jb-roster-fold jb-roster-status-fold" data-status="${status}" data-roster-fold-key="${safe('status:'+status)}"${rosterFoldOpenAttribute('status:'+status)}><summary><span>${safe(rosterStatuses[status])} 명단</span><span>${members.length}명 <span aria-hidden="true">▾</span></span></summary><div class="jb-roster-fold-body">${members.map(rosterPersonCard).join('')||'<p class="srv-muted">해당 인원이 없습니다.</p>'}</div></details>`;
  }
- if(can)html+=`<button class="alt" id="srvRosterAdd">＋ 임시 인원 추가</button>`;
+ // 임시 인원 추가는 상단의 연속 입력 폼에서 처리합니다.
  html+=`<label for="srvRosterNote">추가 작업 안내</label><textarea id="srvRosterNote" placeholder="예: 내일 아침 상황 보고 후 작업 배치 예정" ${can?'':'disabled'}>${safe(rosterNote)}</textarea>`;
  if(can)html+=`<div class="srv-row" style="margin-top:12px"><button id="srvRosterSave">이 날짜 인원배치 저장</button><span class="roster-hint">변경 사항은 저장 버튼을 눌러야 서버에 반영됩니다.</span></div>`;
  return html;
@@ -3409,7 +3466,7 @@ function dashboard(){
   const today=shell.querySelector('#srvRosterToday');if(today)today.onclick=()=>rosterOpen(localDay());
   const tomorrow=shell.querySelector('#srvRosterTomorrow');if(tomorrow)tomorrow.onclick=()=>rosterOpen(localDay(1));
   const copy=shell.querySelector('#srvRosterCopy');if(copy)copy.onclick=rosterCopyPrev;
-  const add=shell.querySelector('#srvRosterAdd');if(add)add.onclick=rosterAddTemp;
+  const quick=shell.querySelector('#srvRosterQuickAdd');if(quick)quick.onsubmit=rosterQuickTempAdd;
   shell.querySelectorAll('[data-roster-drop]').forEach(b=>b.onclick=()=>rosterDropTemp(Number(b.dataset.rosterDrop)));
   const save=shell.querySelector('#srvRosterSave');if(save)save.onclick=rosterSave;
   shell.querySelectorAll('[data-roster-index]').forEach(el=>el.onchange=()=>{rosterReadDraft()});
