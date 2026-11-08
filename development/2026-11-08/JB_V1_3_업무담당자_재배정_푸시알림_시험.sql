@@ -37,7 +37,7 @@ BEGIN
   IF TG_OP='UPDATE' THEN
    PERFORM public.jb_queue_push_event(
     'task:reassign:' || NEW.id::text || ':' ||
-      (pg_catalog.extract(epoch from pg_catalog.clock_timestamp()) * 1000000)::bigint::text,
+      (EXTRACT(EPOCH FROM pg_catalog.clock_timestamp()) * 1000000)::bigint::text,
     NEW.assignee_id,
     'task'
    );
