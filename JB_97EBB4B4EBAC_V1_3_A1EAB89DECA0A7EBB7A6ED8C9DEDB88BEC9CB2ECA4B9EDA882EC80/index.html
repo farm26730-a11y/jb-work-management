@@ -2668,6 +2668,24 @@ function serverTaskDetails(t,readonly=false){
  const homeStatusControl=canChangeFromHome?`<div class="srv-row" style="margin-top:10px;align-items:center;gap:8px"><label for="srvHomeStatus_${safe(t.id)}" style="margin:0">내 업무 상태</label><select id="srvHomeStatus_${safe(t.id)}" class="srv-home-status" data-task="${safe(t.id)}" aria-label="홈 내 업무 상태 변경" ${taskStatusSaving?'disabled':''}>${['planned','in_progress','hold','completed'].map(st=>`<option value="${st}" ${t.status===st?'selected':''}>${safe(status[st])}</option>`).join('')}</select></div><p class="srv-muted">완료를 선택하면 완료 업무 보관함에서 조회할 수 있습니다.</p>`:'';
  return `<div class="srv-note" style="margin:12px 0;background:#f3f8f5"><b>업무 상세</b><div class="srv-muted jb-task-issuer" style="margin:7px 0">지시자: ${safe(jbTaskIssuerName(t))}</div><p style="white-space:pre-wrap">${safe(t.description||'설명 없음')}</p><div class="srv-muted">상태: ${safe(status[t.status]||t.status)} · 목표일: ${safe(t.due_date||'미정')}</div>${homeStatusControl}${taskEditControls}</div>${serverClockHtml(t)}${taskPhotoHtml(t.id,readonly)}<h3>댓글 (${comments.length}건)</h3>${comments.length?comments.map(c=>`<div class="srv-line"><b>${safe(authorName(c.author_id))}</b> <span class="srv-muted">${safe(c.created_at?new Date(c.created_at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'')}</span><p style="white-space:pre-wrap">${safe(c.body)}</p>${jbCommentPhotoHtml(c.id,commentPhotos)}${c.author_id===profile.id?`<div class="srv-row" style="gap:6px"><button type="button" class="alt srv-comment-edit" data-id="${safe(c.id)}" style="padding:5px 10px">댓글 수정</button><button type="button" class="alt srv-comment-delete" data-id="${safe(c.id)}" style="padding:5px 10px">삭제</button></div>`:(profile.app_role==='owner'?`<button type="button" class="alt srv-comment-delete" data-id="${safe(c.id)}" style="padding:5px 10px">관리자 삭제</button>`:'')}</div>`).join(''):'<p class="srv-muted">등록된 댓글이 없습니다.</p>'}${`<form class="${readonly?'srv-home-detail-comment-form':'srv-task-comment-form'}" data-task-id="${safe(t.id)}"><label>새 댓글</label><textarea id="srvCommentBody" maxlength="2000" required placeholder="업무 진행 상황이나 전달할 내용을 입력하세요" style="width:100%;min-height:80px"></textarea>${(t.assignee_id===profile.id||t.created_by===profile.id)&&profile.app_role!=='owner'?`<label style="display:flex;align-items:center;gap:8px;margin:9px 0"><input type="checkbox" name="request_review" style="width:auto"> 상급자 확인 요청 (업무 보고·수정 사항)</label><label style="display:flex;align-items:center;gap:8px;margin:9px 0"><input type="checkbox" name="request_owner" style="width:auto"> 대표님 직접 보고 (대표 홈 확인 요청에 표시)</label>`:''}<label style="display:block;margin:10px 0 4px">댓글 사진 (선택 · 이 댓글 아래 표시, 업무당 총 5장)</label><input type="file" name="report_photos" accept="image/jpeg,image/png,image/webp" multiple><button type="button" class="alt" onclick="jbOpenCamera(this, 'report_photos')">📷 사진 바로 찍기</button><p class="srv-muted">선택한 사진은 작성한 댓글 바로 아래에 표시됩니다.</p><button type="submit" ${commentSubmitting?'disabled':''}>${commentSubmitting?'등록 중...':'댓글 등록'}</button></form>`}`;
 }
+// Request fast push only after a successful server-side comment INSERT.
+// On-demand delivery is best-effort; the 1-minute scheduled sender is the fallback.
+async function jbWakeCommentPush(commentId){
+ if(!commentId||location.protocol!=='https:'||!supa)return;
+ try{
+  const {data,error}=await supa.auth.getSession();
+  if(error||!data?.session?.access_token)return;
+  await fetch('/.netlify/functions/push-comment-now',{
+   method:'POST',headers:{
+    'content-type':'application/json',
+    authorization:'Bearer '+data.session.access_token
+   },body:JSON.stringify({commentId}),cache:'no-store'
+  });
+ }catch(error){
+  // Do not mark the comment itself as failed; scheduled dispatch remains available.
+  console.warn('JB 즉시 푸시 요청 실패, 정기 발송으로 재시도',String(error?.message||error));
+ }
+}
 async function submitServerComment(ev){
  ev.preventDefault();if(commentSubmitting||!profile)return;
  const form=ev.currentTarget,task_id=form.dataset.taskId,body=form.querySelector('textarea').value.trim();
@@ -2683,14 +2701,20 @@ async function submitServerComment(ev){
  const submittedAfter=new Date(Date.now()-5000).toISOString();
  const result=ownerChecked?await supa.rpc('jb_submit_task_owner_report_v14',{p_task_id:task_id,p_body:body}):checked?await supa.rpc('jb_submit_task_comment_report',{p_task_id:task_id,p_body:body,p_request_review:true}):await supa.from('jb_task_comments').insert({task_id,author_id:profile.id,body}).select('id').single();
  if(result.error)throw result.error;
- let photoError='';
- if(files.length){try{
-  let commentId=!checked&&!ownerChecked?result.data?.id:null;
-  if(!commentId){
-   const found=await supa.from('jb_task_comments').select('id,body,created_at').eq('task_id',task_id).eq('author_id',profile.id).eq('body',body).gte('created_at',submittedAfter).order('created_at',{ascending:false}).limit(1);
+ let photoError='',commentId=!checked&&!ownerChecked?result.data?.id:null;
+ // Report RPCs also create a comment. Resolve the actual server-created ID
+ // so duplicate wake-up requests cannot send an unrelated task's notification.
+ if(!commentId){
+  try{
+   const found=await supa.from('jb_task_comments').select('id,body,created_at')
+    .eq('task_id',task_id).eq('author_id',profile.id).eq('body',body)
+    .gte('created_at',submittedAfter).order('created_at',{ascending:false}).limit(1);
    if(found.error)throw found.error;
    commentId=found.data?.[0]?.id;
-  }
+  }catch(e){if(files.length)photoError=String(e.message||e);}
+ }
+ if(commentId)void jbWakeCommentPush(commentId);
+ if(files.length){try{
   if(!commentId)throw new Error('댓글은 저장됐지만 사진을 연결할 댓글 ID를 확인하지 못했습니다.');
   await jbUploadTaskAttachments(task_id,files,commentId);
  }catch(e){photoError=String(e.message||e)}}
