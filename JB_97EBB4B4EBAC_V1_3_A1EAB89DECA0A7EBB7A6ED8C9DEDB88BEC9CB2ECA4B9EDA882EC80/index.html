@@ -1103,7 +1103,7 @@ let archiveMonth=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'}).
 let archiveDetailId=null,archiveDetailRecord=null,archiveDetailComments=[],archiveDetailHistory=[],archiveDetailImages=[],archiveDetailLoading=false,archiveDetailError='';
 let mobileMoreOpen=false;
 let noticeInboxFilter='all';
-let supa=null,profile=null,view='home',homeDay='today',openDept='',records={tasks:[],departments:[],employees:[],attendance:[],announcements:[],reads:[],readStats:[],leaves:[],leaveChanges:[],notes:[],managedEmployees:[],taskComments:[],taskHistory:[],events:[],staffPhones:[],reportRequests:[]},busy=false,err='';
+let supa=null,profile=null,view='home',homeDay='today',openDept='',records={tasks:[],departments:[],employees:[],attendance:[],announcements:[],reads:[],readStats:[],leaves:[],leaveChanges:[],notes:[],managedEmployees:[],taskComments:[],taskHistory:[],events:[],staffPhones:[],reportRequests:[],taskAssignments:[]},busy=false,err='';
 const saved=()=>{try{localStorage.setItem(configKey,JSON.stringify(cfg))}catch(_){}};
 const label={owner:'대표님',manager:'관리자',staff:'직원'};
 const status={planned:'예정',in_progress:'진행중',hold:'보류',completed:'완료'};
@@ -1221,7 +1221,7 @@ async function loadData(){
  if(!await jbVerifyCurrentEmployee())return;
  busy=true;err='';dashboard();
  try{
- const requests=[['events',supa.from('jb_events').select('id,title,description,event_date,created_by,created_at').gte('event_date',localDay(-31)).lte('event_date',localDay(365)).order('event_date',{ascending:true}).limit(1000)],['taskHistory',supa.from('jb_task_history').select('id,task_id,previous_status,new_status,changed_at').order('changed_at',{ascending:true}).limit(5000)],['taskComments',supa.from('jb_task_comments').select('id,task_id,author_id,body,created_at').order('created_at',{ascending:true}).limit(1000)],['departments',supa.from('jb_departments').select('id,name').limit(100)],['employees',supa.rpc('jb_public_staff_directory')],['staffPhones',supa.from('jb_staff_contact_numbers').select('employee_id,phone')],...(profile.app_role==='owner'?[['managedEmployees',supa.rpc('jb_admin_staff_management_list')]]:profile.app_role==='manager'?[['managedEmployees',supa.rpc('jb_manager_staff_management_list')]]:[]),['employeeRoles',supa.from('jb_employees').select('id,app_role,department_id').eq('active',true).limit(500)],['attendance',supa.from('jb_attendance').select('id,work_date,status,work_location,temporary_name,employee_id').gte('work_date',localDay(-1)).order('work_date').limit(1000)],['announcements',supa.from('jb_announcements').select('id,title,content,image_paths,author_id,created_at,updated_at').order('created_at',{ascending:false}).limit(30)],['reads',supa.from('jb_announcement_reads').select('announcement_id,employee_id,read_at').limit(1000)],['readStats',supa.rpc('jb_announcement_read_stats')],['notes',supa.from('jb_attendance_notes').select('id,work_date,note,created_at').gte('work_date',localDay(-1)).order('created_at',{ascending:false}).limit(100)],['leaves',supa.rpc('jb_leave_visible_requests')],['leaveChanges',supa.rpc('jb_leave_change_visible')],['reportRequests',supa.from('jb_task_report_requests').select('id,task_id,requester_id,note,created_at,acknowledged_at,acknowledged_by,target_owner').order('created_at',{ascending:false}).limit(1000)]];
+ const requests=[['events',supa.from('jb_events').select('id,title,description,event_date,created_by,created_at').gte('event_date',localDay(-31)).lte('event_date',localDay(365)).order('event_date',{ascending:true}).limit(1000)],['taskHistory',supa.from('jb_task_history').select('id,task_id,previous_status,new_status,changed_at').order('changed_at',{ascending:true}).limit(5000)],['taskComments',supa.from('jb_task_comments').select('id,task_id,author_id,body,created_at').order('created_at',{ascending:true}).limit(1000)],['departments',supa.from('jb_departments').select('id,name').limit(100)],['employees',supa.rpc('jb_public_staff_directory')],['staffPhones',supa.from('jb_staff_contact_numbers').select('employee_id,phone')],...(profile.app_role==='owner'?[['managedEmployees',supa.rpc('jb_admin_staff_management_list')]]:profile.app_role==='manager'?[['managedEmployees',supa.rpc('jb_manager_staff_management_list')]]:[]),['employeeRoles',supa.from('jb_employees').select('id,app_role,department_id').eq('active',true).limit(500)],['attendance',supa.from('jb_attendance').select('id,work_date,status,work_location,temporary_name,employee_id').gte('work_date',localDay(-1)).order('work_date').limit(1000)],['announcements',supa.from('jb_announcements').select('id,title,content,image_paths,author_id,created_at,updated_at').order('created_at',{ascending:false}).limit(30)],['reads',supa.from('jb_announcement_reads').select('announcement_id,employee_id,read_at').limit(1000)],['readStats',supa.rpc('jb_announcement_read_stats')],['notes',supa.from('jb_attendance_notes').select('id,work_date,note,created_at').gte('work_date',localDay(-1)).order('created_at',{ascending:false}).limit(100)],['leaves',supa.rpc('jb_leave_visible_requests')],['leaveChanges',supa.rpc('jb_leave_change_visible')],['reportRequests',supa.from('jb_task_report_requests').select('id,task_id,requester_id,note,created_at,acknowledged_at,acknowledged_by,target_owner').order('created_at',{ascending:false}).limit(1000)],...(profile.app_role==='staff'?[['taskAssignments',supa.from('jb_task_assignment_ack_v13').select('task_id,employee_id,assigned_at,acknowledged_at').eq('employee_id',profile.id).is('acknowledged_at',null).order('assigned_at',{ascending:false}).limit(1000)]]:[])];
  // V6.6.5.9: 이전 100건 제한 해소. 오래된 업무를 500건씩 순차 조회합니다.
  // 서버 오류가 나면 이미 불러온 업무를 유지하고 누락 가능성을 안내합니다.
  const tasksQuerySize=500,tasksMaximum=5000;
@@ -1244,7 +1244,7 @@ async function loadData(){
     // V6.6.7.9: 조회 실패 항목은 이전 화면 데이터로 표시하지 않는다.
     // 특히 승인 신청/직원 역할 정보가 남으면 잘못된 승인 대기 현황이 보일 수 있다.
     records[r.key]=[];
-    const labels={leaves:'휴무·연장근무 신청',employeeRoles:'직원 권한',employees:'직원 명단',taskHistory:'업무 상태 이력',taskComments:'업무 댓글',attendance:'근태 인원배치',events:'주요 일정',announcements:'공지사항',managedEmployees:'직원 관리',departments:'부서',reads:'공지 읽음',readStats:'공지 읽음 통계',notes:'근태 메모',staffPhones:'직원 전화번호',reportRequests:'업무 확인 요청'};
+    const labels={leaves:'휴무·연장근무 신청',employeeRoles:'직원 권한',employees:'직원 명단',taskHistory:'업무 상태 이력',taskComments:'업무 댓글',attendance:'근태 인원배치',events:'주요 일정',announcements:'공지사항',managedEmployees:'직원 관리',departments:'부서',reads:'공지 읽음',readStats:'공지 읽음 통계',notes:'근태 메모',staffPhones:'직원 전화번호',reportRequests:'업무 확인 요청',taskAssignments:'신규 업무 지시 확인 요청'};
     const title=labels[r.key]||r.key;
     err+=(err?'\n':'')+title+' 조회 실패: '+r.error.message+' (이전 자료를 표시하지 않았습니다. 서버 새로고침으로 다시 시도하세요.)';
   }else records[r.key]=r.data||[];
@@ -1508,11 +1508,66 @@ async function jbOpenReportTask(id,employeeId){
  if(detail){detail.scrollIntoView({behavior:'smooth',block:'center'});await jbAutoAcknowledgeTask(id);}
  else alert('해당 업무가 홈 상세 목록에 표시되지 않았습니다.');
 }
+
+// V1.3: 직원이 받은 새 업무 지시 확인 요청. 업무 상태와 확인 이력은 서버 기준.
+let jbNewTaskAckBusy=false,jbNewTaskPollBusy=false;
+function jbPendingNewTaskAssignments(){
+ if(profile?.app_role!=='staff')return [];
+ const own=new Map((records.tasks||[]).filter(t=>t.assignee_id===profile.id&&t.status!=='completed').map(t=>[t.id,t]));
+ return (records.taskAssignments||[]).filter(a=>!a.acknowledged_at&&a.employee_id===profile.id&&own.has(a.task_id))
+  .map(a=>({...a,task:own.get(a.task_id)}));
+}
+async function jbAcknowledgeNewTask(taskId){
+ if(jbNewTaskAckBusy||!taskId||profile?.app_role!=='staff')return;
+ if(!jbPendingNewTaskAssignments().some(a=>a.task_id===taskId))return alert('확인할 새 업무 지시가 없습니다. 화면을 새로고침해 주세요.');
+ jbNewTaskAckBusy=true;
+ const button=shell.querySelector('.jb-new-task-ack[data-task-id="'+taskId+'"]');
+ if(button)button.disabled=true;
+ try{
+  const {error}=await supa.rpc('jb_acknowledge_assigned_task_v13',{p_task_id:taskId});
+  if(error)throw error;
+  const check=await supa.from('jb_task_assignment_ack_v13').select('acknowledged_at').eq('task_id',taskId).eq('employee_id',profile.id).maybeSingle();
+  if(check.error||!check.data?.acknowledged_at)throw Error('서버의 업무 확인 기록을 검증하지 못했습니다.');
+  records.taskAssignments=(records.taskAssignments||[]).filter(a=>a.task_id!==taskId);
+  dashboard();
+ }catch(e){
+  alert('새 업무 지시 확인 실패: '+String(e.message||e));
+  dashboard();
+ }finally{jbNewTaskAckBusy=false;}
+}
+// 홈이 열린 동안 신규 배정 이력과 업무 상세를 가볍게 동기화한다.
+async function jbSyncNewTaskAssignments(){
+ if(jbNewTaskPollBusy||!profile||profile.app_role!=='staff'||!supa||busy||view!=='home'||document.hidden||jbNewTaskAckBusy)return;
+ const active=document.activeElement;
+ if(active&&shell.contains(active)&&active.matches('input,textarea,select,[contenteditable="true"]'))return;
+ jbNewTaskPollBusy=true;
+ try{
+  const {data,error}=await supa.from('jb_task_assignment_ack_v13')
+   .select('task_id,employee_id,assigned_at,acknowledged_at')
+   .eq('employee_id',profile.id).is('acknowledged_at',null).order('assigned_at',{ascending:false}).limit(1000);
+  if(error)throw error;
+  const next=data||[];
+  const previous=(records.taskAssignments||[]).map(a=>a.task_id+':'+a.assigned_at).sort().join('|');
+  const current=next.map(a=>a.task_id+':'+a.assigned_at).sort().join('|');
+  const missingIds=next.map(a=>a.task_id).filter(id=>!records.tasks.some(t=>t.id===id));
+  if(missingIds.length){
+   const res=await supa.from('jb_tasks').select('id,title,description,status,assignee_id,department_id,created_by,due_date,created_at,completed_at').in('id',missingIds.slice(0,200));
+   if(res.error)throw res.error;
+   records.tasks.push(...(res.data||[]));
+  }
+  records.taskAssignments=next;
+  if(previous!==current||missingIds.length)dashboard();
+ }catch(e){console.warn('JB 신규 업무 지시 동기화:',String(e.message||e));}
+ finally{jbNewTaskPollBusy=false;}
+}
+setInterval(()=>{void jbSyncNewTaskAssignments()},20000);
+
 function jbReportPanel(){
- const my=jbReportTasks(),today=localDay(),requests=jbPendingReportRequests();
+ const my=jbReportTasks(),today=localDay(),requests=jbPendingReportRequests(),newTasks=jbPendingNewTaskAssignments();
  const leaves=profile?.app_role==='manager'?(records.leaves||[]).filter(reviewerCandidate):[];
  const changes=profile?.app_role==='manager'?(records.leaveChanges||[]).filter(c=>c.can_review===true&&c.status==='pending'):[];
  const attention=[
+  ...newTasks.map(a=>({kind:'newTask',at:a.assigned_at||'',value:a})),
   ...requests.map(r=>({kind:'task',at:r.created_at||'',value:r})),
   ...leaves.map(r=>({kind:'leave',at:r.created_at||'',value:r})),
   ...changes.map(c=>({kind:'change',at:c.requested_at||'',value:c}))
@@ -1527,6 +1582,11 @@ function jbReportPanel(){
  const chosen=isRequests?attention:({overdue,running,done:completedToday}[jbReportFilter]||[]);
  const ordered=isRequests?attention.slice(0,7):[...chosen].sort((a,b)=>String(a.due_date||'9999-12-31').localeCompare(String(b.due_date||'9999-12-31'))).slice(0,7);
  const attentionRow=item=>{
+  if(item.kind==='newTask'){
+   const a=item.value,t=a.task;
+   const instructor=names.get(t.created_by)||'관리자·대표님';
+   return `<div class="jb-report-item" style="display:block;text-align:left"><b class="jb-report-itemtitle">신규 업무 지시 · ${safe(t.title||'제목 없음')}</b><div class="jb-report-itemmeta">지시자: ${safe(instructor)} · 완료 예정: ${safe(t.due_date||'기한 미지정')}</div><div class="srv-row" style="margin-top:8px;gap:7px"><button type="button" class="alt" data-jb-report-task="${safe(t.id)}" data-jb-report-employee="${safe(profile.id)}">업무 상세</button><button type="button" class="jb-new-task-ack" data-task-id="${safe(t.id)}" ${jbNewTaskAckBusy?'disabled':''}>업무 확인</button></div></div>`;
+  }
   if(item.kind==='leave'){
    const r=item.value;
    return `<div class="jb-report-item" style="display:block;text-align:left"><b class="jb-report-itemtitle">휴무·연장근무 승인 요청 · ${safe(names.get(r.employee_id)||'직원')}</b><div class="jb-report-itemmeta">${safe(jbLeaveTypeLabel(r))} · ${safe(r.start_date||'')} ~ ${safe(r.end_date||'')}${leaveTimeLabel(r)}</div><div class="jb-report-itemmeta" style="white-space:pre-wrap">${safe(r.reason||'사유 없음')}</div><div class="srv-row" style="margin-top:8px;gap:7px"><button type="button" data-leave-review="${safe(r.id)}" data-decision="approved" ${leaveSaving?'disabled':''}>승인</button><button type="button" class="alt" data-leave-review="${safe(r.id)}" data-decision="rejected" ${leaveSaving?'disabled':''}>반려</button></div></div>`;
@@ -3188,6 +3248,7 @@ function dashboard(){
  const jbNoticeAll=shell.querySelector('#jbHomeAllNotices');if(jbNoticeAll)jbNoticeAll.onclick=()=>{view='announcements';noticeListMode='all';dashboard()};
  shell.querySelectorAll('[data-jb-report]').forEach(b=>b.onclick=()=>{jbReportFilter=b.dataset.jbReport;dashboard();});
   shell.querySelectorAll('.jb-report-ack').forEach(b=>b.onclick=()=>jbAcknowledgeReport(b.dataset.jbAck));
+ shell.querySelectorAll('.jb-new-task-ack').forEach(b=>b.onclick=()=>void jbAcknowledgeNewTask(b.dataset.taskId));
  shell.querySelectorAll('[data-jb-report-task]').forEach(b=>b.onclick=()=>void jbOpenReportTask(b.dataset.jbReportTask,b.dataset.jbReportEmployee));
  shell.querySelectorAll('[data-jb-report-nav]').forEach(b=>b.onclick=()=>{view=b.dataset.jbReportNav;dashboard();});
  shell.querySelectorAll('.jb-home-notice-open').forEach(b=>b.onclick=()=>{const id=b.dataset.noticeId;view='announcements';noticeListMode='all';noticeListQuery='';noticeListPage=1;dashboard();const row=shell.querySelector('[data-notice="'+id+'"]');if(row){row.open=true;row.scrollIntoView({block:'center'});void noticeLoadImages(id);void noticeRead(id);} });
