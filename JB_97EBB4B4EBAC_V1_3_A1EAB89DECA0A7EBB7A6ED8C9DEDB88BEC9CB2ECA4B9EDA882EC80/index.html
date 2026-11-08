@@ -1093,6 +1093,15 @@ let rosterDateLeaveRows=[];
 let approvedRosterLeaves=[]; // 전 직원 공통 승인 근태 배치 조회; 신청/승인 권한 목록과 분리
 
 let rosterDate='',rosterDraft=[],rosterSaved=[],rosterNote='',rosterNoteSaved='',rosterNoteId=null,rosterMessage='',rosterLoading=false,rosterError='',rosterDirty=false;
+// V1.3 시험: 인원배치 그룹 펼침을 추가·삭제 시 유지합니다. 날짜 변경 시에는 초기화.
+let rosterExpandedFolds=new Set();
+function rosterRememberExpandedFolds(){
+ if(view!=='attendance')return;
+ const folds=shell.querySelectorAll('details[data-roster-fold-key]');
+ if(!folds.length)return;
+ rosterExpandedFolds=new Set([...folds].filter(el=>el.open).map(el=>el.dataset.rosterFoldKey));
+}
+function rosterFoldOpenAttribute(key){return rosterExpandedFolds.has(key)?' open':'';}
 let expandedServerTask=null,commentSubmitting=false;
 let repeatTemplates=[],repeatTemplatesLoaded=false,repeatMessage="";
 let eventMonth=localDay().slice(0,7),eventMessage="",eventSaving=false,eventEditId="";
@@ -1820,7 +1829,7 @@ function rosterFromRows(rows,date){
  return [...people,...extras];
 }
 async function rosterOpen(date=localDay()){
- rosterDate=date;rosterLoading=true;rosterError='';rosterMessage='';view='attendance';dashboard();
+ rosterExpandedFolds=new Set();rosterDate=date;rosterLoading=true;rosterError='';rosterMessage='';view='attendance';dashboard();
  try{const data=await rosterGet(date);rosterDateLeaveRows=data.leaves;rosterSaved=data.rows;rosterDraft=rosterFromRows(data.rows,date);rosterNote=data.notes[0]?.note||'';rosterNoteSaved=rosterNote;rosterNoteId=data.notes[0]?.id||null;rosterDirty=false;/* V6.6.6.3: 날짜별 승인 휴무 조회가 전체 신청함(records.leaves)을 덮어쓰지 않도록 보호 */}
  catch(e){rosterDateLeaveRows=[];rosterError='서버 날짜별 조회 실패: '+e.message;rosterDraft=[]}
  rosterLoading=false;dashboard();
@@ -1854,8 +1863,24 @@ async function rosterCopyPrev(){
   rosterDirty=true;rosterError='';rosterMessage=previousDate+' 저장된 배치를 '+rosterDate+' 초안으로 불러왔습니다. 확인 후 저장하세요.';dashboard();
  }catch(e){rosterError='전날 배치 조회 오류: '+(e.message||e);dashboard()}
 }
-function rosterAddTemp(){rosterReadDraft();rosterDraft.push({id:null,employee_id:null,temporary_name:'',label:'',status:'working',work_location:'',memo:'',exists:false,changed:true});rosterDirty=true;dashboard()}
-function rosterDropTemp(i){rosterReadDraft();const r=rosterDraft[i];if(!r||r.employee_id)return; r._delete=true;r.changed=true;rosterDirty=true;dashboard()}
+function rosterAddTemp(){
+ rosterReadDraft();rosterRememberExpandedFolds();
+ const index=rosterDraft.length;
+ rosterDraft.push({id:null,employee_id:null,temporary_name:'',label:'',status:'working',work_location:'',memo:'',exists:false,changed:true});
+ rosterDirty=true;
+ // 새 임시 인원을 곧바로 입력할 수 있도록 해당 그룹을 열고 이름칸으로 이동.
+ rosterExpandedFolds.add('group:임시 인원');
+ dashboard();
+ const field=shell.querySelector('[data-roster-index="'+index+'"][data-roster-field="temporary_name"]');
+ if(field){field.scrollIntoView({block:'center',behavior:'smooth'});field.focus({preventScroll:true});}
+}
+function rosterDropTemp(i){
+ rosterReadDraft();rosterRememberExpandedFolds();
+ const r=rosterDraft[i];if(!r||r.employee_id)return;
+ r._delete=true;r.changed=true;rosterDirty=true;
+ // 삭제 직후에도 출근/출장/휴무 및 부서 그룹이 닫히지 않도록 펼침 상태 유지.
+ dashboard();
+}
 function rosterEditor(){
  const can=rosterCanEdit(),rows=rosterDraft.filter(r=>!r._delete),counts={working:0,trip:0,off:0};rows.forEach(r=>{const status=r.employee_id&&rosterLeaveIds(rosterDate).has(r.employee_id)?'off':r.status;counts[status]=(counts[status]||0)+1;});
  let html=`<div class="srv-row" style="justify-content:space-between"><h2>날짜별 인원배치</h2><span class="srv-muted">${can?'재직 직원 공통 입력':'조회 전용'}</span></div><label for="srvRosterDate">배치 날짜</label><input type="date" id="srvRosterDate" value="${safe(rosterDate)}" style="max-width:230px"><div class="srv-row" style="margin:10px 0"><button type="button" class="alt" id="srvRosterToday">오늘</button><button type="button" class="alt" id="srvRosterTomorrow">내일</button>${can?'<button type="button" class="alt" id="srvRosterCopy">전날 배치 복사</button>':''}</div><div class="roster-pills"><span class="roster-pill">출근 ${counts.working||0}</span><span class="roster-pill">출장 ${counts.trip||0}</span><span class="roster-pill">휴무 ${counts.off||0}</span></div><p class="roster-hint">출근은 근무 장소별로, 출장·휴무는 별도 명단으로 홈에 표시됩니다. 동일 직원은 날짜별 한 명으로 계산합니다. 아래 숫자는 저장 전 초안에 있는 인원을 포함합니다.</p>`;
@@ -1891,12 +1916,12 @@ function rosterEditor(){
  groupNames.forEach(name=>{
    const members=working.filter(i=>deptNameForRoster(rosterDraft[i])===name).sort((a,b)=>jbRosterDisplayCompare(rosterDraft[a],rosterDraft[b]));
    if(!members.length)return;
-   html+=`<details class="jb-roster-fold"><summary><span>${safe(name)}</span><span>${members.length}명 <span aria-hidden="true">▾</span></span></summary><div class="jb-roster-fold-body">${members.map(rosterPersonCard).join('')}</div></details>`;
+   html+=`<details class="jb-roster-fold" data-roster-fold-key="${safe('group:'+name)}"${rosterFoldOpenAttribute('group:'+name)}><summary><span>${safe(name)}</span><span>${members.length}명 <span aria-hidden="true">▾</span></span></summary><div class="jb-roster-fold-body">${members.map(rosterPersonCard).join('')}</div></details>`;
  });
  html+='</div>';
  for(const status of ['trip','off']){
    const members=activeIndexes.filter(i=>displayStatus(rosterDraft[i])===status).sort((a,b)=>jbRosterDisplayCompare(rosterDraft[a],rosterDraft[b]));
-   html+=`<details class="jb-roster-fold jb-roster-status-fold" data-status="${status}"><summary><span>${safe(rosterStatuses[status])} 명단</span><span>${members.length}명 <span aria-hidden="true">▾</span></span></summary><div class="jb-roster-fold-body">${members.map(rosterPersonCard).join('')||'<p class="srv-muted">해당 인원이 없습니다.</p>'}</div></details>`;
+   html+=`<details class="jb-roster-fold jb-roster-status-fold" data-status="${status}" data-roster-fold-key="${safe('status:'+status)}"${rosterFoldOpenAttribute('status:'+status)}><summary><span>${safe(rosterStatuses[status])} 명단</span><span>${members.length}명 <span aria-hidden="true">▾</span></span></summary><div class="jb-roster-fold-body">${members.map(rosterPersonCard).join('')||'<p class="srv-muted">해당 인원이 없습니다.</p>'}</div></details>`;
  }
  if(can)html+=`<button class="alt" id="srvRosterAdd">＋ 임시 인원 추가</button>`;
  html+=`<label for="srvRosterNote">추가 작업 안내</label><textarea id="srvRosterNote" placeholder="예: 내일 아침 상황 보고 후 작업 배치 예정" ${can?'':'disabled'}>${safe(rosterNote)}</textarea>`;
