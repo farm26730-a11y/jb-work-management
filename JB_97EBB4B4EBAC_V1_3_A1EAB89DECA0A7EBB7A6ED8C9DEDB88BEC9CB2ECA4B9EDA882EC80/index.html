@@ -3142,12 +3142,21 @@ function jbMealPage(){
  const depts=jbMealV14AuthorizedDepartments();
  const dinnerLocked=jbMealDinnerClosedForSelected();
  const canSetCutoff=['owner','manager'].includes(profile?.app_role);
- const cutoffInfo=`<div class="meal-panel meal-cutoff-box">
- <div class="meal-cutoff-line"><div><b>저녁 식사 신청 마감시간</b><p class="meal-cutoff-clock">${safe(jbMealV14Settings)} <small>(한국시간)</small></p><p class="srv-muted">전체 부서에 공통 적용되며 변경 시 모든 사용자에게 동일하게 적용됩니다.</p></div>
- ${canSetCutoff?`<div class="meal-cutoff-editor"><label for="meal-cutoff-time">마감시간 변경</label><input id="meal-cutoff-time" type="time" value="${safe(jbMealV14Settings)}" step="60"><button type="button" id="meal-cutoff-save" class="alt" ${jbMealCutoffSaving||jbMealV14Loading?'disabled':''}>${jbMealCutoffSaving?'저장 중...':'마감시간 저장'}</button></div>`:'<span class="srv-muted">수정 권한: 대표·부서장</span>'}</div>
- ${jbMealCutoffMessage?`<p class="srv-good">${safe(jbMealCutoffMessage)}</p>`:''}</div>`;
+ // V1.3: 마감시간은 저녁식사 신청 화면에서만 간단히 표시합니다.
+ // 관리자 설정은 접어 두고 기존 RPC/마감 제한 로직은 유지합니다.
+ const cutoffInfo=jbMealV14Screen==='apply'&&jbMealV14Type==='dinner'
+  ?`<div class="srv-row" style="align-items:center;gap:10px;flex-wrap:wrap;margin:9px 0 12px">
+    <strong style="font-size:14px;color:#075e51">저녁식사 신청 마감시간 · ${safe(jbMealV14Settings)}분</strong>
+    ${canSetCutoff?`<details style="margin:0"><summary style="cursor:pointer;font-size:12px">마감시간 변경</summary>
+      <div class="meal-cutoff-editor" style="margin-top:8px">
+       <label for="meal-cutoff-time">전체 부서 공통</label>
+       <input id="meal-cutoff-time" type="time" value="${safe(jbMealV14Settings)}" step="60">
+       <button type="button" id="meal-cutoff-save" class="alt" ${jbMealCutoffSaving||jbMealV14Loading?'disabled':''}>${jbMealCutoffSaving?'저장 중...':'마감시간 저장'}</button>
+      </div></details>`:''}
+    ${jbMealCutoffMessage?`<span class="srv-good" style="width:100%">${safe(jbMealCutoffMessage)}</span>`:''}
+   </div>`:'';
  const tabs=`<div class="meal-mode"><button type="button" data-meal-screen="apply" class="${jbMealV14Screen==='apply'?'sel':''}">식사 신청·관리</button><button type="button" data-meal-screen="calendar" class="${jbMealV14Screen==='calendar'?'sel':''}">월별 조회</button></div>`;
- let html=`<section class="srv-line" id="jbMealV14"><h3>🍚 식사 신청·관리</h3><p class="srv-muted">부서에 관계없이 모든 재직 직원이 식사 신청·수정을 할 수 있습니다. 고정 인원 등록·비활성화 및 마감시간 설정 권한은 별도입니다.</p>${cutoffInfo}${tabs}${jbMealV14Error?`<p class="srv-error">${safe(jbMealV14Error)}</p>`:''}${jbMealV14Loading?'<p class="srv-muted">명단을 불러오는 중입니다.</p>':''}`;
+ let html=`<section class="srv-line" id="jbMealV14"><h3>🍚 식사 신청·관리</h3><p class="srv-muted">부서에 관계없이 모든 재직 직원이 식사 신청·수정을 할 수 있습니다. 고정 인원 등록·비활성화 및 마감시간 설정 권한은 별도입니다.</p>${tabs}${jbMealV14Error?`<p class="srv-error">${safe(jbMealV14Error)}</p>`:''}${jbMealV14Loading?'<p class="srv-muted">명단을 불러오는 중입니다.</p>':''}`;
  if(jbMealV14Screen==='calendar'){
   const [first,last,days]=jbMealV14MonthBounds(jbMealV14Month),weekday=new Date(first+'T12:00:00Z').getUTCDay();
   const cells=['일','월','화','수','목','금','토'].map(w=>`<span class="meal-week">${w}</span>`);
@@ -3182,7 +3191,8 @@ function jbMealPage(){
   const guests=jbMealV14Guests.filter(g=>g.meal_date===jbMealV14Date&&g.meal_type===jbMealV14Type&&g.department_id===jbMealV14Dept);
   const c=jbMealV14Counts(jbMealV14Date);
   html+=`<div class="meal-formbar"><label>날짜<input type="date" id="meal-date" value="${safe(jbMealV14Date)}"></label><label>점심·저녁<select id="meal-kind"><option value="lunch" ${jbMealV14Type==='lunch'?'selected':''}>점심</option><option value="dinner" ${jbMealV14Type==='dinner'?'selected':''}>저녁</option></select></label><label>신청 대상 부서 (전체 부서 선택 가능)<select id="meal-dept">${depts.map(d=>`<option value="${safe(d.id)}" ${d.id===jbMealV14Dept?'selected':''}>${safe(d.name)}</option>`).join('')}</select></label></div>
-  ${jbMealV14Type==='dinner'?`<p class="srv-muted">저녁 신청 마감: ${safe(jbMealV14Settings)} (한국시간). 저녁은 장소를 선택하지 않습니다.</p>`:'<p class="srv-muted">점심 장소: 농원 · 동이 · 쇼가든 (소속 부서와 무관하게 지정 가능)</p>'}
+  ${cutoffInfo}
+  ${jbMealV14Type==='dinner'?'<p class="srv-muted">저녁은 장소를 선택하지 않습니다.</p>':'<p class="srv-muted">점심 장소: 농원 · 동이 · 쇼가든 (소속 부서와 무관하게 지정 가능)</p>'}
   ${dinnerLocked?'<p class="srv-warning-text" role="status">저녁 신청이 마감되었습니다. 선택한 날짜의 명단은 조회만 가능하며 신규 주문·변경·삭제는 할 수 없습니다.</p><fieldset disabled style="border:0;padding:0;margin:0;min-width:0">':''}
   <div class="meal-toolbar"><button type="button" class="alt" id="meal-all-yes">전체 식사</button><button type="button" class="alt" id="meal-all-no">전체 미식사</button><button type="button" class="alt" id="meal-copy-yesterday">전날 복사</button></div>
   <table class="meal-list"><thead><tr><th>직원</th><th>신청</th><th>${jbMealV14Type==='lunch'?'점심 장소':'저녁'}</th></tr></thead><tbody>${rows||'<tr><td colspan="3">직원 명단 없음</td></tr>'}</tbody></table>
