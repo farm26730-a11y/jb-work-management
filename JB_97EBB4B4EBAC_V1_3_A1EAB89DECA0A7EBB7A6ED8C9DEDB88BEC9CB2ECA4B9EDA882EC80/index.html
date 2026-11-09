@@ -2679,12 +2679,13 @@ async function jbWakeServerPush(type,eventId){
  try{
   const {data,error}=await supa.auth.getSession();
   if(error||!data?.session?.access_token)return;
-  await fetch('/.netlify/functions/push-now',{
+  const response=await fetch('/.netlify/functions/push-now',{
    method:'POST',headers:{
     'content-type':'application/json',
     authorization:'Bearer '+data.session.access_token
    },body:JSON.stringify({type,eventId}),cache:'no-store'
   });
+  if(!response.ok)console.warn('JB 즉시 푸시 요청 HTTP '+response.status+'; 1분 예약 발송 대기 ('+type+')');
  }catch(error){
   // Do not mark the comment itself as failed; scheduled dispatch remains available.
   console.warn('JB 즉시 푸시 요청 실패, 정기 발송으로 재시도',String(error?.message||error));
