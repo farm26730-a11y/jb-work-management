@@ -37,7 +37,7 @@ export default async request=>{
    // First report request + comment share one transaction timestamp.
    // Do not wake unrelated old reports for the same task.
    const freshRequestIds=requests.filter(r=>validComments.some(c=>
-    r.note===c.body&&new Date(r.created_at).getTime()===new Date(c.created_at).getTime()
+    r.note===c.body&&String(r.created_at)===String(c.created_at)
    )).map(r=>'report:'+r.id);
    // Re-report events have comment-specific keys.
    eventKeys=[...new Set([
