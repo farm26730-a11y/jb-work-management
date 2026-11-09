@@ -59,8 +59,12 @@ export default async request=>{
    .gte('created_at',recentSince)
    .limit(30);
   if(jobsError)throw jobsError;
-  for(const job of jobs||[])await deliverQueuedPush(db,job);
-  return new Response(null,{status:204});
+  const outcomes=[];
+  for(const job of jobs||[])outcomes.push(await deliverQueuedPush(db,job));
+  // 204 means every selected queue item was actually delivered.
+  // 202 means queued, in progress, skipped or failed; scheduled fallback remains.
+  const fullySent=outcomes.length>0&&outcomes.every(outcome=>outcome==='sent');
+  return new Response(null,{status:fullySent?204:202});
  }catch(error){
   console.error('JB immediate push dispatch:',String(error?.message||error));
   return new Response('',{status:503});
