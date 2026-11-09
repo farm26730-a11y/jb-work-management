@@ -25,7 +25,7 @@ export default async request=>{
    // Report RPCs return either a request ID or void; the task ID is stable.
    // Verify the author's recent report comment and server-side request.
    const {data:requests,error:requestError}=await db.from('jb_task_report_requests')
-    .select('id,note').eq('task_id',eventId).eq('requester_id',worker.id)
+    .select('id,note,created_at').eq('task_id',eventId).eq('requester_id',worker.id)
     .order('created_at',{ascending:false}).limit(10);
    if(requestError||!requests?.length)return new Response('',{status:403});
    const {data:comments,error:commentError}=await db.from('jb_task_comments')
@@ -34,9 +34,14 @@ export default async request=>{
    if(commentError)return new Response('',{status:503});
    const validComments=(comments||[]).filter(c=>requests.some(r=>r.note===c.body));
    if(!validComments.length)return new Response('',{status:403});
-   // First report: report:requestId. Re-report: report:comment:commentId.
+   // First report request + comment share one transaction timestamp.
+   // Do not wake unrelated old reports for the same task.
+   const freshRequestIds=requests.filter(r=>validComments.some(c=>
+    r.note===c.body&&new Date(r.created_at).getTime()===new Date(c.created_at).getTime()
+   )).map(r=>'report:'+r.id);
+   // Re-report events have comment-specific keys.
    eventKeys=[...new Set([
-    ...requests.map(r=>'report:'+r.id),
+    ...freshRequestIds,
     ...validComments.map(c=>'report:comment:'+c.id)
    ])];
   }else{
