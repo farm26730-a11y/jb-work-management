@@ -2685,7 +2685,8 @@ async function jbWakeServerPush(type,eventId){
     authorization:'Bearer '+data.session.access_token
    },body:JSON.stringify({type,eventId}),cache:'no-store'
   });
-  if(!response.ok)console.warn('JB 즉시 푸시 요청 HTTP '+response.status+'; 1분 예약 발송 대기 ('+type+')');
+  if(!response.ok)console.warn('JB 즉시 푸시 요청 HTTP '+response.status+'; 1분 예약 발송 점검 ('+type+')');
+  else if(response.status===202)console.info('JB 즉시 푸시 미확정, 서버 예약 발송 및 기기 구독 확인 필요 ('+type+')');
  }catch(error){
   // Do not mark the comment itself as failed; scheduled dispatch remains available.
   console.warn('JB 즉시 푸시 요청 실패, 정기 발송으로 재시도',String(error?.message||error));
