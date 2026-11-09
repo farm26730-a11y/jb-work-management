@@ -40,7 +40,13 @@ export async function deliverQueuedPush(db,job){
  }
  const devices=[...new Map((registered||[]).filter(x=>x.endpoint&&x.p256dh&&x.auth_secret).map(x=>[x.endpoint,x])).values()];
  if(!devices.length){
-  await db.from('jb_push_outbox').update({last_error:'이벤트 당시 등록된 푸시 기기 없음'}).eq('id',job.id).is('sent_at',null);
+  // Device registrations created after the event are deliberately ineligible.
+  // Rechecking this job every minute cannot create an eligible old subscription.
+  // Mark terminal without claiming a push was delivered, to avoid queue starvation.
+  const {error:noDeviceError}=await db.from('jb_push_outbox')
+   .update({attempts:5,last_error:'이벤트 당시 등록된 푸시 기기 없음 (전송 대상 없음)'})
+   .eq('id',job.id).is('sent_at',null).eq('attempts',attempts);
+  if(noDeviceError)console.error('JB push no-device terminal update:',noDeviceError.message);
   return 'no_existing_device';
  }
  const marker='PROCESSING:'+Date.now()+':'+Math.random().toString(36).slice(2,9);
