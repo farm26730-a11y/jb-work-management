@@ -1129,31 +1129,104 @@ function login(msg=''){
  document.getElementById('srvSettings').onclick=()=>{supa=null;setup()};
  document.getElementById('srvLogin').onclick=async()=>{
  const button=document.getElementById('srvLogin');button.disabled=true;document.getElementById('srvLoginMsg').textContent='로그인 확인 중...';
- try{const loginId=document.getElementById('srvEmail').value.trim();const password=document.getElementById('srvPassword').value;if(!loginId||!password)throw new Error('이메일과 비밀번호를 입력하세요.');if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginId))throw new Error('올바른 이메일 주소를 입력하세요.');const {error}=await supa.auth.signInWithPassword({email:loginId,password});if(error)throw error;await loadProfile()}catch(e){document.getElementById('srvLoginMsg').textContent='로그인 오류: '+String(e.message||e);button.disabled=false}
+ try{const loginId=document.getElementById('srvEmail').value.trim();const password=document.getElementById('srvPassword').value;if(!loginId||!password)throw new Error('이메일과 비밀번호를 입력하세요.');if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginId))throw new Error('올바른 이메일 주소를 입력하세요.');const {error}=await supa.auth.signInWithPassword({email:loginId,password});if(error)throw error;await loadProfile()}catch(e){document.getElementById('srvLoginMsg').textContent='로그인 오류: '+jbSignupErrorMessage(e,'login');button.disabled=false}
  };
  document.getElementById('srvShowSignup').onclick=()=>jbShowSignup();
 }
+// V1.3 test: registration mail errors and verification are separate from employee approval.
+// The public Supabase default mailer has delivery restrictions; the UI must not
+// claim that an inbox has received mail merely because signUp() returned 200.
+let jbLastSignupMailRequestAt=0;
+function jbSignupErrorMessage(error,context='signup'){
+ const code=String(error?.code||error?.error_code||'').toLowerCase();
+ const status=Number(error?.status||0);
+ const raw=String(error?.message||'');
+ if(code==='over_email_send_rate_limit'||(status===429&&/email|mail/i.test(raw)))
+  return 'Supabase 인증 메일 발송 한도를 초과했습니다. 반복해서 회원가입을 누르지 마세요. 관리자가 사용자용 SMTP를 설정한 뒤 다시 시도해야 합니다.';
+ if(code==='email_address_not_authorized')
+  return '현재 Supabase 기본 메일 서버는 프로젝트 팀에 등록되지 않은 이메일로 인증 메일을 보낼 수 없습니다. 관리자에게 SMTP 설정을 요청하세요.';
+ if(code==='email_not_confirmed')
+  return '이메일 인증이 아직 완료되지 않았습니다. 인증 메일의 링크를 확인한 뒤 로그인하세요.';
+ if(code==='otp_expired'||code==='otp_disabled'||code==='email_link_invalid')
+  return '이메일 인증 링크가 만료되었거나 유효하지 않습니다. 앱에서 인증 메일 재발송을 요청하세요.';
+ if(code==='over_request_rate_limit'||status===429)
+  return '인증 요청이 너무 많습니다. 반복 요청을 중단하고 잠시 후 다시 시도해 주세요.';
+ if(code==='signup_disabled')
+  return '이 프로젝트에서는 신규 회원가입이 비활성화되어 있습니다. 관리자에게 문의하세요.';
+ return raw||((context==='login')?'로그인 처리에 실패했습니다.':'인증 처리에 실패했습니다.');
+}
+function jbSignupRedirectUrl(){
+ // file:// and localhost cause default Site URL redirects to the wrong address.
+ if(location.protocol!=='https:'||!location.host)
+  throw new Error('회원가입 및 이메일 인증은 배포된 HTTPS 업무관리 앱 주소에서 진행해 주세요. PC의 HTML 파일이나 localhost 주소에서는 가입하지 마세요.');
+ return location.origin+location.pathname;
+}
+function jbAuthCallbackErrorMessage(){
+ try{
+  const sources=[new URLSearchParams(location.hash.replace(/^#/,'')),new URLSearchParams(location.search)];
+  for(const q of sources){
+   const code=q.get('error_code')||q.get('error');
+   if(!code)continue;
+   return '이메일 인증 처리 실패: '+jbSignupErrorMessage({code,message:q.get('error_description')||''});
+  }
+ }catch(_){}
+ return '';
+}
 function jbShowSignup(msg=''){
- shell.innerHTML=`<div class="srv-box jb-login-card"><div class="jb-login-content"><h1>JB 업무관리 회원가입</h1><p class="srv-muted">가입 후 관리자가 직원관리에서 계정을 연결해야 업무관리 앱을 이용할 수 있습니다.</p><div class="field"><label for="jbSignupEmail">이메일</label><input id="jbSignupEmail" type="email" inputmode="email" autocomplete="email" placeholder="이메일 주소" required></div><div class="field"><label for="jbSignupPassword">비밀번호 (8자 이상)</label><input id="jbSignupPassword" type="password" autocomplete="new-password" minlength="8" placeholder="비밀번호" required></div><div class="field"><label for="jbSignupConfirm">비밀번호 확인</label><input id="jbSignupConfirm" type="password" autocomplete="new-password" minlength="8" placeholder="비밀번호 다시 입력" required></div><div class="srv-row" style="margin-top:16px"><button type="button" id="jbSignupSubmit">회원가입</button><button type="button" class="alt" id="jbSignupBack">로그인으로 돌아가기</button></div><p class="srv-error" id="jbSignupMessage" role="status">${safe(msg)}</p><p class="srv-muted">이메일 인증이 활성화된 경우 인증 메일을 확인하세요. 가입만으로 직원 권한이 부여되지는 않습니다.</p></div></div>`;
+ shell.innerHTML=`<div class="srv-box jb-login-card"><div class="jb-login-content">
+  <h1>JB 업무관리 회원가입</h1>
+  <p class="srv-muted">이메일 인증 후 대표님 또는 관리자가 직원 계정으로 연결해야 업무관리 앱을 이용할 수 있습니다.</p>
+  <div class="field"><label for="jbSignupEmail">이메일</label><input id="jbSignupEmail" type="email" inputmode="email" autocomplete="email" placeholder="이메일 주소" required></div>
+  <div class="field"><label for="jbSignupPassword">비밀번호 (8자 이상)</label><input id="jbSignupPassword" type="password" autocomplete="new-password" minlength="8" placeholder="비밀번호" required></div>
+  <div class="field"><label for="jbSignupConfirm">비밀번호 확인</label><input id="jbSignupConfirm" type="password" autocomplete="new-password" minlength="8" placeholder="비밀번호 다시 입력" required></div>
+  <div class="srv-row" style="margin-top:16px;gap:8px;flex-wrap:wrap">
+   <button type="button" id="jbSignupSubmit">회원가입</button>
+   <button type="button" class="alt" id="jbSignupResend">인증 메일 재발송</button>
+   <button type="button" class="alt" id="jbSignupBack">로그인으로 돌아가기</button>
+  </div>
+  <p class="srv-error" id="jbSignupMessage" role="status">${safe(msg)}</p>
+  <p class="srv-muted">메일이 오지 않으면 스팸함을 확인하세요. 서버 발송 제한이 발생하면 여러 번 누르지 말고 관리자에게 알려주세요.</p>
+ </div></div>`;
  document.getElementById('jbSignupBack').onclick=()=>login();
  document.getElementById('jbSignupSubmit').onclick=async()=>{
   const b=document.getElementById('jbSignupSubmit'),m=document.getElementById('jbSignupMessage');
-  const email=document.getElementById('jbSignupEmail').value.trim(),password=document.getElementById('jbSignupPassword').value,confirmPassword=document.getElementById('jbSignupConfirm').value;
+  const email=document.getElementById('jbSignupEmail').value.trim();
+  const password=document.getElementById('jbSignupPassword').value,confirmPassword=document.getElementById('jbSignupConfirm').value;
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){m.textContent='올바른 이메일 주소를 입력하세요.';return;}
   if(password.length<8){m.textContent='비밀번호는 최소 8자 이상 입력하세요.';return;}
   if(password!==confirmPassword){m.textContent='비밀번호가 일치하지 않습니다.';return;}
   b.disabled=true;m.textContent='회원가입 처리 중...';
   try{
-   const signupOptions=/^https?:$/.test(window.location.protocol)?{emailRedirectTo:window.location.origin+window.location.pathname}:undefined;
-   const {data,error}=await supa.auth.signUp({email,password,...(signupOptions?{options:signupOptions}:{})});
+   const redirect=jbSignupRedirectUrl();
+   const {data,error}=await supa.auth.signUp({email,password,options:{emailRedirectTo:redirect}});
    if(error)throw error;
-   // 인증 확인을 끈 Supabase 프로젝트에서도 미승인 직원의 앱 진입을 방지합니다.
+   jbLastSignupMailRequestAt=Date.now();
+   // Even with confirmations turned off, membership is granted only via
+   // jb_employees auth_user_id server-side linking and role checks.
    if(data?.session)await supa.auth.signOut();
-   m.textContent='회원가입 요청이 접수되었습니다. 이메일 인증 메일이 도착하면 인증하고, 관리자에게 계정 연결을 요청하세요.';
+   m.textContent=data?.session
+    ?'계정 가입 요청이 처리되었습니다. 이메일 인증 설정은 관리자 확인이 필요하며, 직원 계정 연결 전에는 앱을 사용할 수 없습니다.'
+    :'가입 요청이 접수되었습니다. 인증 메일이 도착하면 링크를 눌러 인증해 주세요. 메일 수신이 확인된 것은 아닙니다. 인증 후 관리자에게 직원 계정 연결을 요청하세요.';
    document.getElementById('jbSignupPassword').value='';
    document.getElementById('jbSignupConfirm').value='';
-  }catch(e){m.textContent='회원가입 실패: '+String(e.message||e);}
+  }catch(e){m.textContent='회원가입 실패: '+jbSignupErrorMessage(e);}
   finally{b.disabled=false;}
+ };
+ document.getElementById('jbSignupResend').onclick=async()=>{
+  const button=document.getElementById('jbSignupResend'),message=document.getElementById('jbSignupMessage');
+  const email=document.getElementById('jbSignupEmail').value.trim();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){message.textContent='재발송할 이메일 주소를 입력해 주세요.';return;}
+  const seconds=Math.ceil((60000-(Date.now()-jbLastSignupMailRequestAt))/1000);
+  if(seconds>0){message.textContent='메일을 방금 요청했습니다. '+seconds+'초 이후에 재발송할 수 있습니다.';return;}
+  button.disabled=true;message.textContent='인증 메일 재발송 요청 중...';
+  try{
+   const redirect=jbSignupRedirectUrl();
+   const {error}=await supa.auth.resend({type:'signup',email,options:{emailRedirectTo:redirect}});
+   if(error)throw error;
+   jbLastSignupMailRequestAt=Date.now();
+   message.textContent='인증 메일 재발송 요청이 접수되었습니다. 받은편지함과 스팸함을 확인하세요. 실제 메일 도착은 별도로 확인해야 합니다.';
+  }catch(e){message.textContent='재발송 실패: '+jbSignupErrorMessage(e);}
+  finally{button.disabled=false;}
  };
 }
 async function loadProfile(){
@@ -3646,7 +3719,7 @@ function dashboard(){
 
 async function initialize(){
  if(!window.supabase||!window.supabase.createClient){shell.innerHTML='<div class="srv-box"><h1>연결 라이브러리 로딩 실패</h1><p>인터넷 연결 또는 jsDelivr 접근 여부를 확인하고 새로고침해 주세요.</p></div>';return;}
- try{supa=window.supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storage:window.localStorage}});const {data:{session},error}=await supa.auth.getSession();if(error)throw error;if(session)await loadProfile();else login();}catch(e){login('일시적인 연결 오류입니다. 저장된 서버 주소와 공개키는 유지됩니다. 인터넷 연결을 확인한 후 다시 열어주세요. ('+String(e.message||e)+')')}
+ try{const callbackError=jbAuthCallbackErrorMessage();supa=window.supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storage:window.localStorage}});const {data:{session},error}=await supa.auth.getSession();if(error){if(callbackError){login(callbackError);return;}throw error;}if(session)await loadProfile();else login(callbackError);}catch(e){login(jbAuthCallbackErrorMessage()||'일시적인 연결 오류입니다. 저장된 서버 주소와 공개키는 유지됩니다. 인터넷 연결을 확인한 후 다시 열어주세요. ('+String(e.message||e)+')')}
 }
 rosterDate=localDay();if(cfg.url&&cfg.key)initialize();else setup();
 })();
