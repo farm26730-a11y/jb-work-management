@@ -3721,7 +3721,33 @@ async function initialize(){
  if(!window.supabase||!window.supabase.createClient){shell.innerHTML='<div class="srv-box"><h1>연결 라이브러리 로딩 실패</h1><p>인터넷 연결 또는 jsDelivr 접근 여부를 확인하고 새로고침해 주세요.</p></div>';return;}
  try{const callbackError=jbAuthCallbackErrorMessage();supa=window.supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storage:window.localStorage}});const {data:{session},error}=await supa.auth.getSession();if(error){if(callbackError){login(callbackError);return;}throw error;}if(session)await loadProfile();else login(callbackError);}catch(e){login(jbAuthCallbackErrorMessage()||'일시적인 연결 오류입니다. 저장된 서버 주소와 공개키는 유지됩니다. 인터넷 연결을 확인한 후 다시 열어주세요. ('+String(e.message||e)+')')}
 }
-rosterDate=localDay();if(cfg.url&&cfg.key)initialize();else setup();
+// V1.3 test: automatic onboarding on published HTTPS sites.
+// Supabase publishable keys are client-visible by design; never fetch private keys.
+async function jbStartConnection(){
+ if(location.protocol==='https:'){
+  try{
+   const res=await fetch('/.netlify/functions/public-config',{cache:'no-store'});
+   if(res.ok){
+    const remote=await res.json();
+    const url=String(remote?.url||'').replace(/\/+$/,'');
+    const key=String(remote?.key||'');
+    if(/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url)&&key.startsWith('sb_publishable_')){
+     // Always prefer the deployed site's environment to a stale config in
+     // localStorage (e.g. after a test/prod account change).
+     cfg={url,key};saved();
+     await initialize();return;
+    }
+   }
+  }catch(error){
+   console.warn('공개 Supabase 설정 자동 조회 실패; 저장된 연결 설정을 확인합니다.');
+  }
+ }
+ if(cfg.url&&cfg.key){await initialize();return;}
+ // Development/local builds retain manual setup. A production deployment must
+ // configure SUPABASE_PUBLISHABLE_KEY to avoid exposing this staff-facing page.
+ setup();
+}
+rosterDate=localDay();void jbStartConnection();
 })();
 </script><script>
 // 모바일 사진 촬영: 기존 사진 업로드 input으로 촬영 파일을 합쳐 전달합니다.
