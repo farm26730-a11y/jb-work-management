@@ -2425,10 +2425,10 @@ function jbAccountAdminPanel(){
     <b style="overflow-wrap:anywhere">${safe(a.email)}</b>
     <p class="srv-muted" style="margin:4px 0">${a.confirmed?'인증 완료':'인증 대기'} · ${linked?'연결: '+safe(linked.name)+' ('+safe(linked.app_role)+')':'직원 연결 없음'} · ${safe(String(a.created_at||'').slice(0,10))}</p>
     <div class="srv-row" style="gap:6px;flex-wrap:wrap">
-      ${!a.confirmed?`<button type="button" class="alt" data-jb-acct-action="resend" data-id="${safe(a.id)}"${disabled}>인증메일 재발송</button>`:''}
-      ${linked?`<button type="button" class="alt" data-jb-acct-action="unlink" data-id="${safe(a.id)}"${disabled}>로그인 연결 해제</button>`:
+      ${!a.protected&&!a.confirmed?`<button type="button" class="alt" data-jb-acct-action="resend" data-id="${safe(a.id)}"${disabled}>인증메일 재발송</button>`:''}
+      ${a.protected?'<span class="srv-muted">보호 계정 · 변경 불가</span>':linked?`<button type="button" class="alt" data-jb-acct-action="unlink" data-id="${safe(a.id)}"${disabled}>로그인 연결 해제</button>`:
        `<select aria-label="기존 직원 선택" data-jb-acct-target="${safe(a.id)}" style="min-width:125px;flex:1"><option value="">기존 직원 선택</option>${options}</select><button type="button" class="alt" data-jb-acct-action="link" data-id="${safe(a.id)}"${disabled}>기존 직원에 연결</button>`}
-      ${!linked&&profile.app_role==='owner'?`<button type="button" class="alt" style="color:#a22626" data-jb-acct-action="delete" data-id="${safe(a.id)}"${disabled}>가입 계정 삭제</button>`:''}
+      ${!a.protected&&!linked&&profile.app_role==='owner'?`<button type="button" class="alt" style="color:#a22626" data-jb-acct-action="delete" data-id="${safe(a.id)}"${disabled}>가입 계정 삭제</button>`:''}
     </div>
   </article>`;
  }).join('');
