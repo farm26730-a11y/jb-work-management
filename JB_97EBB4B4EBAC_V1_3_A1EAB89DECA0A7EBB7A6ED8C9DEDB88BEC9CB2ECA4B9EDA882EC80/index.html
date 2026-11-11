@@ -2411,6 +2411,86 @@ async function noticeRead(id){
 
 let directoryMessage='',directorySaving=false;
 let directorySearch='',directoryStatus='all',directoryRole='all';
+
+/* V1.3 시험: 회원가입 계정 관리, 서버에서 권한 재검사 */
+let jbAcctOpen=false,jbAcctBusy=false,jbAcctState=null,jbAcctMsg='';
+function jbAccountAdminPanel(){
+ if(!['owner','manager'].includes(profile?.app_role))return '';
+ const list=jbAcctState?.accounts||[];
+ const available=jbAcctState?.availableEmployees||[];
+ const options=available.map(e=>`<option value="${safe(e.id)}">${safe(e.name)} (${safe(e.position||e.app_role)})</option>`).join('');
+ const items=list.slice().sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))).map(a=>{
+  const linked=a.employee,disabled=jbAcctBusy?' disabled':'';
+  return `<article class="srv-line" style="padding:10px;border:1px solid #d6e8df;border-radius:10px;margin:8px 0" data-jb-account-row="${safe(a.id)}">
+    <b style="overflow-wrap:anywhere">${safe(a.email)}</b>
+    <p class="srv-muted" style="margin:4px 0">${a.confirmed?'인증 완료':'인증 대기'} · ${linked?'연결: '+safe(linked.name)+' ('+safe(linked.app_role)+')':'직원 연결 없음'} · ${safe(String(a.created_at||'').slice(0,10))}</p>
+    <div class="srv-row" style="gap:6px;flex-wrap:wrap">
+      ${!a.confirmed?`<button type="button" class="alt" data-jb-acct-action="resend" data-id="${safe(a.id)}"${disabled}>인증메일 재발송</button>`:''}
+      ${linked?`<button type="button" class="alt" data-jb-acct-action="unlink" data-id="${safe(a.id)}"${disabled}>로그인 연결 해제</button>`:
+       `<select aria-label="기존 직원 선택" data-jb-acct-target="${safe(a.id)}" style="min-width:125px;flex:1"><option value="">기존 직원 선택</option>${options}</select><button type="button" class="alt" data-jb-acct-action="link" data-id="${safe(a.id)}"${disabled}>기존 직원에 연결</button>`}
+      ${!linked&&profile.app_role==='owner'?`<button type="button" class="alt" style="color:#a22626" data-jb-acct-action="delete" data-id="${safe(a.id)}"${disabled}>가입 계정 삭제</button>`:''}
+    </div>
+  </article>`;
+ }).join('');
+ return `<section class="srv-line" id="jbAccountAdminPanel">
+  <div class="srv-row" style="align-items:center;gap:8px;flex-wrap:wrap"><h3 style="margin:0">회원가입 계정 관리</h3><button type="button" class="alt" id="jbAcctToggle">${jbAcctOpen?'접기':'계정 목록 열기'}</button></div>
+  ${jbAcctOpen?`<p class="srv-muted">연결 해제는 업무·근태 이력을 보존합니다. 가입 계정 삭제는 대표님만 가능하며 연결 해제 후 진행합니다.</p>
+  ${jbAcctMsg?`<p class="srv-note">${safe(jbAcctMsg)}</p>`:''}
+  <button type="button" class="alt" id="jbAcctRefresh" ${jbAcctBusy?'disabled':''}>목록 새로고침</button>
+  ${jbAcctState?(items||'<p class="srv-muted">표시할 계정이 없습니다.</p>'):'<p class="srv-muted">회원가입 계정 목록을 불러오세요.</p>'}
+  `:''}
+ </section>`;
+}
+async function jbAcctRequest(payload){
+ const {data,error}=await supa.auth.getSession();
+ if(error||!data?.session?.access_token)throw new Error('로그인 세션을 확인하세요.');
+ const response=await fetch('/.netlify/functions/account-admin',{
+  method:payload?'POST':'GET',cache:'no-store',
+  headers:{'authorization':'Bearer '+data.session.access_token,'content-type':'application/json'},
+  ...(payload?{body:JSON.stringify(payload)}:{})
+ });
+ let result={};
+ try{result=await response.json()}catch(_){}
+ if(!response.ok)throw new Error(result.error||('서버 응답 오류 '+response.status));
+ return result;
+}
+async function jbAcctReload(){
+ if(jbAcctBusy)return;
+ jbAcctBusy=true;jbAcctMsg='회원가입 계정 확인 중…';dashboard();
+ try{jbAcctState=await jbAcctRequest();jbAcctMsg='현재 계정 상태입니다.'}
+ catch(e){jbAcctMsg='조회 실패: '+String(e.message||e)}
+ finally{jbAcctBusy=false;dashboard()}
+}
+async function jbAcctAction(action,userId){
+ if(jbAcctBusy||!['owner','manager'].includes(profile?.app_role))return;
+ const acct=jbAcctState?.accounts?.find(a=>a.id===userId);
+ if(!acct)return;
+ const payload={action,userId};
+ if(action==='unlink'){
+  if(!confirm('로그인 계정 연결을 해제할까요?\\n업무·근태·직원 기록은 유지됩니다.'))return;
+ }else if(action==='delete'){
+  if(profile.app_role!=='owner'||acct.employee)return;
+  if(!confirm('이 회원가입 계정을 영구 삭제할까요? 직원·업무·근태 기록은 유지됩니다.'))return;
+  const typed=prompt('삭제 확인을 위해 이메일을 입력하세요:\\n'+acct.email,'');
+  if(typed===null)return;
+  payload.confirmEmail=typed;
+ }else if(action==='link'){
+  payload.employeeId=shell.querySelector('[data-jb-acct-target="'+userId+'"]')?.value||'';
+  if(!payload.employeeId)return alert('연결할 기존 직원을 선택하세요.');
+  if(!confirm('해당 계정을 기존 직원 기록에 연결할까요?'))return;
+ }else if(action==='resend'){
+  if(!confirm(acct.email+'로 인증메일을 다시 보낼까요?'))return;
+ }else return;
+ jbAcctBusy=true;jbAcctMsg='요청 처리 중…';dashboard();
+ try{
+  const result=await jbAcctRequest(payload);
+  jbAcctMsg=result.message||'완료';
+  jbAcctState=await jbAcctRequest();
+  if(action==='unlink'||action==='link')await loadData();
+ }catch(e){jbAcctMsg='처리 실패: '+String(e.message||e);}
+ finally{jbAcctBusy=false;dashboard()}
+}
+
 function employeeManagement(){
  const isOwner=profile.app_role==='owner';
  const isEditor=['owner','manager'].includes(profile.app_role);
@@ -2426,7 +2506,7 @@ function employeeManagement(){
    if(!isEditor) return `<div class="srv-line"><b>${safe(p.name)}</b> ${safe(p.position||'')} · ${safe(d)}</div>`;
    return `<form class="srv-employee-edit srv-line" data-search="${safe([p.name,p.position||'',d].join(' ').toLowerCase())}" data-active="${p.active?'active':'inactive'}" data-role="${safe(p.app_role)}" data-id="${safe(p.id)}" style="display:grid;grid-template-columns:minmax(100px,1fr) minmax(90px,1fr);gap:8px;align-items:end"><div><label>직원 이름</label><input name="name" maxlength="80" value="${safe(p.name)}" required></div><div><label>직급</label><input name="position" maxlength="80" value="${safe(p.position||'')}"></div><div><label>전화번호</label><input name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="010-0000-0000" value="${safe(phoneFor(p.id))}"></div><div><label>소속 부서</label><select name="department_id" style="width:100%;padding:10px">${depts.map(x=>`<option value="${safe(x.id)}" ${x.id===p.department_id?'selected':''}>${safe(x.name)}</option>`).join('')}</select></div><div><button type="submit" class="alt" ${directorySaving?'disabled':''}>이 직원 정보 저장</button></div><div style="grid-column:1/-1;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="srv-pill">${p.active?'재직':'비활성'}</span><span class="srv-muted">권한: ${safe(p.app_role==='owner'?'대표님':p.app_role==='manager'?'부서 관리자':'일반 직원')}</span>${p.app_role==='owner'||(!isOwner&&p.app_role==='manager')?'<span class="srv-muted">관리자 계정 권한 변경 제한</span>':`<button type="button" class="alt srv-role-toggle" data-id="${safe(p.id)}" data-role="${p.app_role==='manager'?'staff':'manager'}" ${directorySaving?'disabled':''}>${p.app_role==='manager'?'일반 직원으로 변경':'관리자로 변경'}</button><button type="button" class="alt srv-active-toggle" data-id="${safe(p.id)}" data-active="${p.active?'false':'true'}" ${directorySaving?'disabled':''}>${p.active?'직원 비활성화':'직원 재활성화'}</button>${!p.active&&p.app_role==='staff'?`<button type="button" class="alt srv-staff-delete" data-id="${safe(p.id)}" style="color:#b42318;border-color:#e7b1ad">완전 삭제</button>`:''}`}</div></form>`;
  }).join('');
- return `<div class="srv-directory-${isOwner?'owner':isEditor?'manager':'staff'}">${directoryMessage?`<p class="srv-good">${safe(directoryMessage)}</p>`:''}<h3>직원 명단 (${people.length}명)</h3>${editRows||'<p>조회 가능한 직원이 없습니다.</p>'}${isEditor?`<hr class="hr"><h3>부서 관리</h3><form id="srvDeptCreate"><label>신규 부서 이름</label><div class="srv-row"><input style="flex:1;min-width:120px" name="name" maxlength="80" required placeholder="새 부서 이름"><button type="submit">부서 추가</button></div></form>${depts.map(d=>`<form class="srv-dept-edit srv-row srv-line" data-id="${safe(d.id)}"><input style="flex:1;min-width:120px" name="name" value="${safe(d.name)}" maxlength="80" required><button class="alt" type="submit">이름 변경</button><button class="alt srv-dept-delete" type="button" data-id="${safe(d.id)}">삭제</button></form>`).join('')}<hr class="hr"><h3>회원가입한 직원 연결</h3><div class="srv-note">① 직원이 로그인 화면에서 이메일 회원가입 및 메일 인증 완료 → ② 관리자/대표가 아래 이메일로 신규 직원 등록 → ③ 직원이 로그인합니다. 기존 직원 기록이 있는 경우 새로 등록하지 말고 아래 UID 방식 및 기존 기록과의 연동 여부를 먼저 확인하세요.</div><form id="srvEmployeeEmailLink"><label>가입한 이메일</label><input type="email" name="email" required placeholder="직원이 가입한 이메일" autocomplete="off"><label>직원 이름</label><input name="name" maxlength="80" required placeholder="직원 이름"><label>직급</label><input name="position" maxlength="80" placeholder="주임, 대리 등"><label>부서</label><select name="department_id" required>${depts.map(x=>`<option value="${safe(x.id)}">${safe(x.name)}</option>`).join('')}</select><div class="srv-row" style="margin-top:12px"><button type="submit" ${directorySaving?'disabled':''}>인증된 이메일 직원 연결</button></div></form><p class="srv-muted">이메일 확인 완료 계정만 연결하며, 등록 결과는 직원 명단에서 다시 확인합니다. 기존 직원과 중복 등록하지 않도록 주의하세요.</p><details><summary>고급: Auth UID로 신규 직원 연결</summary><div class="srv-note">직원관리에서 직접 UID를 확인하고 연결할 때만 사용하세요. 대표님은 일반 직원·관리자를, 부서장은 일반 직원만 연결할 수 있습니다.</div><form id="srvEmployeeLink"><label>Authentication 사용자 UID (UUID)</label><input name="auth_user_id" required placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"><label>Authentication 등록 이메일 (오연결 방지)</label><input type="email" name="email" required placeholder="직원 이메일"><label>직원 이름</label><input name="name" maxlength="80" required><label>직급</label><input name="position" maxlength="80" placeholder="주임, 대리 등"><label>부서</label><select name="department_id">${depts.map(x=>`<option value="${safe(x.id)}">${safe(x.name)}</option>`).join('')}</select><label>앱 권한</label><select name="app_role"><option value="staff">일반 직원</option><option value="manager">부서 관리자</option></select><div class="srv-row" style="margin-top:12px"><button type="submit" ${directorySaving?'disabled':''}>직원 로그인 계정 연결</button></div></form><p class="srv-muted">연결 후 직원은 생성된 로그인 계정으로 로그인할 수 있습니다. 직원 비밀번호 설정·초기화는 Supabase Authentication에서 별도로 진행하세요. 직원 비활성화는 앱 접근을 제한하지만 Supabase Authentication 계정은 삭제하지 않습니다.</p></details>`:''}</div>`;
+ return `<div class="srv-directory-${isOwner?'owner':isEditor?'manager':'staff'}">${directoryMessage?`<p class="srv-good">${safe(directoryMessage)}</p>`:''}<h3>직원 명단 (${people.length}명)</h3>${editRows||'<p>조회 가능한 직원이 없습니다.</p>'}${isEditor?`<hr class="hr"><h3>부서 관리</h3><form id="srvDeptCreate"><label>신규 부서 이름</label><div class="srv-row"><input style="flex:1;min-width:120px" name="name" maxlength="80" required placeholder="새 부서 이름"><button type="submit">부서 추가</button></div></form>${depts.map(d=>`<form class="srv-dept-edit srv-row srv-line" data-id="${safe(d.id)}"><input style="flex:1;min-width:120px" name="name" value="${safe(d.name)}" maxlength="80" required><button class="alt" type="submit">이름 변경</button><button class="alt srv-dept-delete" type="button" data-id="${safe(d.id)}">삭제</button></form>`).join('')}<hr class="hr">${jbAccountAdminPanel()}<h3>회원가입한 직원 연결</h3><div class="srv-note">① 직원이 로그인 화면에서 이메일 회원가입 및 메일 인증 완료 → ② 관리자/대표가 아래 이메일로 신규 직원 등록 → ③ 직원이 로그인합니다. 기존 직원 기록이 있는 경우 새로 등록하지 말고 아래 UID 방식 및 기존 기록과의 연동 여부를 먼저 확인하세요.</div><form id="srvEmployeeEmailLink"><label>가입한 이메일</label><input type="email" name="email" required placeholder="직원이 가입한 이메일" autocomplete="off"><label>직원 이름</label><input name="name" maxlength="80" required placeholder="직원 이름"><label>직급</label><input name="position" maxlength="80" placeholder="주임, 대리 등"><label>부서</label><select name="department_id" required>${depts.map(x=>`<option value="${safe(x.id)}">${safe(x.name)}</option>`).join('')}</select><div class="srv-row" style="margin-top:12px"><button type="submit" ${directorySaving?'disabled':''}>인증된 이메일 직원 연결</button></div></form><p class="srv-muted">이메일 확인 완료 계정만 연결하며, 등록 결과는 직원 명단에서 다시 확인합니다. 기존 직원과 중복 등록하지 않도록 주의하세요.</p><details><summary>고급: Auth UID로 신규 직원 연결</summary><div class="srv-note">직원관리에서 직접 UID를 확인하고 연결할 때만 사용하세요. 대표님은 일반 직원·관리자를, 부서장은 일반 직원만 연결할 수 있습니다.</div><form id="srvEmployeeLink"><label>Authentication 사용자 UID (UUID)</label><input name="auth_user_id" required placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"><label>Authentication 등록 이메일 (오연결 방지)</label><input type="email" name="email" required placeholder="직원 이메일"><label>직원 이름</label><input name="name" maxlength="80" required><label>직급</label><input name="position" maxlength="80" placeholder="주임, 대리 등"><label>부서</label><select name="department_id">${depts.map(x=>`<option value="${safe(x.id)}">${safe(x.name)}</option>`).join('')}</select><label>앱 권한</label><select name="app_role"><option value="staff">일반 직원</option><option value="manager">부서 관리자</option></select><div class="srv-row" style="margin-top:12px"><button type="submit" ${directorySaving?'disabled':''}>직원 로그인 계정 연결</button></div></form><p class="srv-muted">연결 후 직원은 생성된 로그인 계정으로 로그인할 수 있습니다. 직원 비밀번호 설정·초기화는 Supabase Authentication에서 별도로 진행하세요. 직원 비활성화는 앱 접근을 제한하지만 Supabase Authentication 계정은 삭제하지 않습니다.</p></details>`:''}</div>`;
 }
 async function employeeEmailLink(e){
  e.preventDefault();
@@ -3654,6 +3734,11 @@ function dashboard(){
   };
  }
  if(view==='employees'){
+  const acctToggle=shell.querySelector('#jbAcctToggle');
+  if(acctToggle)acctToggle.onclick=()=>{jbAcctOpen=!jbAcctOpen;dashboard();if(jbAcctOpen&&!jbAcctState)void jbAcctReload();};
+  const acctRefresh=shell.querySelector('#jbAcctRefresh');
+  if(acctRefresh)acctRefresh.onclick=()=>void jbAcctReload();
+  shell.querySelectorAll('[data-jb-acct-action]').forEach(b=>b.onclick=()=>void jbAcctAction(b.dataset.jbAcctAction,b.dataset.id));
   const emailLinker=shell.querySelector('#srvEmployeeEmailLink');if(emailLinker)emailLinker.onsubmit=employeeEmailLink;
   const linker=shell.querySelector('#srvEmployeeLink');if(linker)linker.onsubmit=employeeLink;
   
