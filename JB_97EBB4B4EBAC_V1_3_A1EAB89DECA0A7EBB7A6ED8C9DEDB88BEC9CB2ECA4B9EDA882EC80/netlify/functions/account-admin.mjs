@@ -66,8 +66,9 @@ export default async request=>{
    const byAuth=new Map(staff.filter(x=>x.auth_user_id).map(x=>[x.auth_user_id,x]));
    const accounts=users.filter(u=>u.email).map(u=>{
     const e=byAuth.get(u.id)||null;
-    if(!targetAllowed(actor,e))return null;
+    if(actor.app_role==='manager'&&!targetAllowed(actor,e))return null;
     return {
+     protected:!targetAllowed(actor,e),
      id:u.id,email:u.email,confirmed:!!u.email_confirmed_at,
      created_at:u.created_at,confirmation_sent_at:u.confirmation_sent_at,
      employee:e?{id:e.id,name:e.name,position:e.position,app_role:e.app_role,active:e.active}:null
