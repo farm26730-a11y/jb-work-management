@@ -2504,7 +2504,10 @@ async function jbAcctAction(action,userId){
  }else if(action==='link'){
   payload.employeeId=shell.querySelector('[data-jb-acct-target="'+userId+'"]')?.value||'';
   if(!payload.employeeId)return alert('연결할 기존 직원을 선택하세요.');
-  if(!confirm('해당 계정을 기존 직원 기록에 연결할까요?'))return;
+  const target=(jbAcctState?.availableEmployees||[]).find(e=>e.id===payload.employeeId);
+  if(!target)return alert('직원 목록이 변경되었습니다. 새로고침하세요.');
+  const deptName=(records.departments||[]).find(d=>d.id===target.department_id)?.name||'부서 미확인';
+  if(!confirm('가입 계정 '+acct.email+' 을(를) 직원 '+target.name+' ('+(target.position||target.app_role)+' / '+deptName+') 기록에 연결하시겠습니까?'+(target.active?'':' 비활성 직원은 연결 후에도 로그인할 수 없습니다.')))return;
  }else if(action==='resend'){
   if(!confirm(acct.email+'로 인증메일을 다시 보낼까요?'))return;
  }else return;
