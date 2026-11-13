@@ -75,7 +75,7 @@ export default async request=>{
     };
    }).filter(Boolean);
    const availableEmployees=staff.filter(e=>!e.auth_user_id&&targetAllowed(actor,e))
-    .map(e=>({id:e.id,name:e.name,position:e.position,app_role:e.app_role,active:e.active}));
+    .map(e=>({id:e.id,name:e.name,position:e.position,department_id:e.department_id,app_role:e.app_role,active:e.active}));
    return send({accounts,availableEmployees,role:actor.app_role});
   }
   let body;
