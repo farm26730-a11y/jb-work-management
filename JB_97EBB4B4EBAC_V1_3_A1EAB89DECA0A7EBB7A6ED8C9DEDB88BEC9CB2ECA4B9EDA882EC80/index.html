@@ -1233,7 +1233,7 @@ async function loadProfile(){
  let {data:{user},error:authError}=await supa.auth.getUser();if(authError||!user){if(authError){login('연결 오류로 로그인 상태를 확인하지 못했습니다. 인터넷 연결을 확인한 후 다시 시도해 주세요.');return;}login('인증 세션이 없습니다. 로그인하세요.');return;}
  const {data,error}=await supa.from('jb_employees').select('id,name,position,app_role,department_id,active').eq('auth_user_id',user.id).eq('active',true).maybeSingle();
  if(error){login('직원 정보 조회에 실패했습니다. 네트워크 및 접근 권한을 확인하세요. 로그인 세션은 보존됩니다.');return;}if(!data){profile=null;login('이메일 계정 인증은 완료되었지만 아직 직원관리에서 계정 연결·활성화가 필요합니다. 대표님 또는 부서장에게 요청하세요.');return;}
- profile=data;jbAcctOpen=false;jbAcctState=null;jbAcctMsg='';repeatTemplates=[];repeatTemplatesLoaded=false;await loadData();await loadRepeatTemplates();if(['owner','manager'].includes(profile?.app_role))void jbAcctReload();
+ profile=data;jbAcctOpen=false;jbAcctState=null;jbAcctMsg='';repeatTemplates=[];repeatTemplatesLoaded=false;await loadData();await loadRepeatTemplates();if(['owner','manager'].includes(profile?.app_role))void jbAcctReload(true);
 }
 // V6.6.8.1: 로그인 후 변경된 재직상태/역할을 서버에서 재확인합니다.
 // 이 클라이언트 검사는 사용자 화면을 잠그기 위한 보조 장치입니다.
@@ -1725,15 +1725,15 @@ function jbPendingSignupAccounts() {
 }
 function jbSignupHomeRow(a){
   const eligible=!!a.confirmed&&!a.protected;
-  const options=(jbAcctState?.availableEmployees||[]).filter(e=>e.active===true)
-    .map(e=>`<option value="${safe(e.id)}">${safe(e.name)} (${safe(e.position||e.app_role)})</option>`).join('');
-  return `<div class="jb-report-item" style="display:block;text-align:left" data-jb-signup-id="${safe(a.id)}">
-    <b class="jb-report-itemtitle">회원가입 요청 · ${safe(a.email)}</b>
-    <div class="jb-report-itemmeta">${a.confirmed?'이메일 인증 완료':'이메일 인증 대기'} · ${safe(String(a.created_at||'').slice(0,10))}</div>
-    <div class="srv-row" style="margin-top:8px;gap:6px;flex-wrap:wrap">
-    ${eligible?`<select data-jb-acct-target="${safe(a.id)}" aria-label="연결할 기존 직원" style="min-width:130px;flex:1"><option value="">기존 직원 선택</option>${options}</select><button type="button" data-jb-acct-action="link" data-id="${safe(a.id)}" ${jbAcctBusy?'disabled':''}>직원 연결</button><button type="button" class="alt" data-jb-signup-new="${safe(a.id)}">신규 직원 등록</button>`:
-     `<span class="srv-muted">메일 인증 후 연결할 수 있습니다.</span><button type="button" class="alt" data-jb-acct-action="resend" data-id="${safe(a.id)}" ${jbAcctBusy?'disabled':''}>인증 메일 재발송</button>`}
-    </div></div>`;
+  const options=(jbAcctState?.availableEmployees||[]).filter(e=>e.active===true).map(e=>`<option value="${safe(e.id)}">${safe(e.name)} (${safe(e.position||e.app_role)})</option>`).join('');
+  const formOpen=jbAcctSignupFormId===a.id;
+  const depts=(records.departments||[]).map(d=>`<option value="${safe(d.id)}">${safe(d.name)}</option>`).join('');
+  const controls=eligible?
+    `<select data-jb-acct-target="${safe(a.id)}" aria-label="연결할 기존 직원" style="min-width:130px;flex:1"><option value="">기존 직원 선택</option>${options}</select><button type="button" data-jb-acct-action="link" data-id="${safe(a.id)}" ${jbAcctBusy?'disabled':''}>기존 직원 연결</button><button type="button" class="alt" data-jb-signup-new="${safe(a.id)}" ${jbAcctBusy?'disabled':''}>${formOpen?'신규 등록 닫기':'신규 직원 등록'}</button>`:
+    `<span class="srv-muted">메일 인증을 완료한 뒤 연결할 수 있습니다.</span><button type="button" class="alt" data-jb-acct-action="resend" data-id="${safe(a.id)}" ${jbAcctBusy?'disabled':''}>인증 메일 재발송</button>`;
+  const form=eligible&&formOpen?
+    `<form class="jb-signup-create-form srv-line" data-user-id="${safe(a.id)}" style="margin-top:9px"><p class="srv-muted">기존 직원 기록이 없는 경우에만 신규 등록하세요. 일반 직원 권한으로 생성됩니다.</p><label>직원 이름<input name="name" maxlength="80" required autocomplete="off"></label><label>직급<input name="position" maxlength="80" placeholder="예: 사원" autocomplete="off"></label><label>소속 부서<select name="department_id" required><option value="">소속 부서 선택</option>${depts}</select></label><button type="submit" ${jbAcctBusy?'disabled':''}>신규 직원 생성 및 계정 연결</button></form>`:'';
+  return `<div class="jb-report-item" style="display:block;text-align:left" data-jb-signup-id="${safe(a.id)}"><b class="jb-report-itemtitle">회원가입 요청 · ${safe(a.email)}</b><div class="jb-report-itemmeta">${a.confirmed?'이메일 인증 완료':'이메일 인증 대기'} · ${safe(String(a.created_at||'').slice(0,10))}</div><div class="srv-row" style="margin-top:8px;gap:6px;flex-wrap:wrap">${controls}</div>${form}</div>`;
 }
 function jbReportPanel(){
  const my=jbReportTasks(),today=localDay(),requests=jbPendingReportRequests(),newTasks=jbPendingNewTaskAssignments(),commentRequests=jbPendingCommentAttention();
@@ -1783,6 +1783,7 @@ function jbReportPanel(){
  return `<section class="jb-report-widget" aria-label="오늘의 업무 보고 현황">
  <div class="jb-report-head"><div><h2>오늘의 업무·확인 현황</h2><p>실제 업무 기록 기준 · ${profile?.app_role==='staff'?'내 업무':'권한별 업무 현황'}</p></div><span class="jb-report-day">${safe(today)}</span></div>
  <div class="jb-report-grid">${filters.map(([key,label,num])=>`<button type="button" class="jb-report-tile ${jbReportFilter===key?'active':''}" data-jb-report="${key}" aria-pressed="${jbReportFilter===key}"><span>${label}</span><strong>${num}<small>건</small></strong></button>`).join('')}</div>
+ ${['owner','manager'].includes(profile?.app_role)&&!jbAcctState?`<p class="srv-muted">${safe(jbAcctMsg||'가입 요청 목록 확인 중…')} · 가입 요청 새로고침을 눌러 확인하세요.</p>`:jbAcctMsg&&jbAcctMsg!=='현재 계정 상태입니다.'?`<p class="srv-muted">${safe(jbAcctMsg)}</p>`:''}
  <div class="jb-report-list"><div class="jb-report-listhead"><b>${safe(filters.find(x=>x[0]===jbReportFilter)?.[1]||'확인 요청')}</b><span>${chosen.length}건</span></div>
  ${ordered.length?(isRequests?ordered.map(attentionRow).join(''):ordered.map(t=>`<button class="jb-report-item" type="button" data-jb-report-task="${safe(t.id)}" data-jb-report-employee="${safe(t.assignee_id)}"><span class="jb-report-itemtitle">${safe(t.title||'제목 없음')}</span><span class="jb-report-itemmeta">담당: ${safe(names.get(t.assignee_id)||'직원')} · ${safe(t.due_date||'기한 미지정')} · ${safe(status[t.status]||t.status)}</span></button>`).join('')):`<p class="srv-muted">${isRequests?'현재 미확인 요청이 없습니다.':'해당 업무가 없습니다.'}</p>`}
  ${chosen.length>7?`<p class="jb-report-note">최근 7건만 표시합니다. 다른 신청은 휴무·연장근무에서 확인하세요.</p>`:''}</div>
@@ -2433,8 +2434,8 @@ let directoryMessage='',directorySaving=false;
 let directorySearch='',directoryStatus='all',directoryRole='all';
 
 /* V1.3 시험: 회원가입 계정 관리, 서버에서 권한 재검사 */
-let jbAcctOpen=false,jbAcctBusy=false,jbAcctState=null,jbAcctMsg='';
-setInterval(()=>{if(!profile||view!=='home'||!['owner','manager'].includes(profile.app_role)||jbAcctBusy||busy||document.hidden)return;const focused=document.activeElement;if(focused&&shell.contains(focused)&&focused.matches('input,textarea,select,[contenteditable="true"]'))return;void jbAcctReload();},60000);
+let jbAcctOpen=false,jbAcctBusy=false,jbAcctState=null,jbAcctMsg='',jbAcctSignupFormId='';
+setInterval(()=>{if(!profile||view!=='home'||!['owner','manager'].includes(profile.app_role)||jbAcctBusy||busy||document.hidden)return;const focused=document.activeElement;if(focused&&shell.contains(focused)&&focused.matches('input,textarea,select,[contenteditable="true"]'))return;void jbAcctReload(true);},60000);
 function jbAccountAdminPanel(){
  if(!['owner','manager'].includes(profile?.app_role))return '';
  const list=jbAcctState?.accounts||[];
@@ -2475,12 +2476,17 @@ async function jbAcctRequest(payload){
  if(!response.ok)throw new Error(result.error||('서버 응답 오류 '+response.status));
  return result;
 }
-async function jbAcctReload(){
- if(jbAcctBusy)return;
- jbAcctBusy=true;jbAcctMsg='회원가입 계정 확인 중…';dashboard();
- try{jbAcctState=await jbAcctRequest();jbAcctMsg='현재 계정 상태입니다.'}
- catch(e){jbAcctMsg='조회 실패: '+String(e.message||e)}
- finally{jbAcctBusy=false;dashboard()}
+async function jbAcctReload(silent=false){
+  if(jbAcctBusy||!['owner','manager'].includes(profile?.app_role))return;
+  jbAcctBusy=true;
+  if(!silent){jbAcctMsg='회원가입 계정 확인 중…';dashboard();}
+  try{jbAcctState=await jbAcctRequest();jbAcctMsg='현재 계정 상태입니다.';}
+  catch(e){jbAcctState=null;jbAcctMsg='가입 요청 조회 실패: '+String(e.message||e);}
+  finally{
+    jbAcctBusy=false;
+    const active=document.activeElement;
+    if(!silent||!active||!shell.contains(active)||!active.matches('input,textarea,select,[contenteditable="true"]'))dashboard();
+  }
 }
 async function jbAcctAction(action,userId){
  if(jbAcctBusy||!['owner','manager'].includes(profile?.app_role))return;
@@ -2512,6 +2518,37 @@ async function jbAcctAction(action,userId){
  finally{jbAcctBusy=false;dashboard()}
 }
 
+async function jbAcctCreateHomeEmployee(event){
+  event.preventDefault();
+  if(jbAcctBusy||!['owner','manager'].includes(profile?.app_role))return;
+  const form=event.currentTarget, userId=form.dataset.userId;
+  const account=jbPendingSignupAccounts().find(a=>a.id===userId);
+  if(!account||!account.confirmed)return alert('인증을 완료한 미연결 가입 계정을 다시 확인하세요.');
+  const fd=new FormData(form);
+  const name=String(fd.get('name')||'').trim(),position=String(fd.get('position')||'').trim(),dept=String(fd.get('department_id')||'');
+  if(!name||!(records.departments||[]).some(d=>d.id===dept))return alert('이름과 소속 부서를 확인하세요.');
+  if(!confirm(account.email+' 계정을 신규 일반 직원 '+name+'(으)로 등록하고 연결할까요? 기존 직원 이력이 있다면 취소하세요.'))return;
+  jbAcctBusy=true;jbAcctMsg='신규 직원 등록 처리 중…';dashboard();
+  try{
+    const args={p_email:account.email,p_name:name,p_position:position,p_department_id:dept,p_app_role:'staff'};
+    const {data,error}=await supa.rpc('jb_link_staff_by_email_v24',args);
+    if(error)throw error;
+    if(!data)throw Error('서버에서 신규 직원 ID를 반환하지 않았습니다. 중복 등록 전에 직원 목록을 확인하세요.');
+    jbAcctSignupFormId='';
+    try{
+      await loadData();
+      jbAcctState=await jbAcctRequest();
+      const linked=jbAcctState.accounts?.find(a=>a.id===userId)?.employee;
+      jbAcctMsg=linked?.id===data&&linked.active===true?
+        '신규 직원 생성 및 계정 연결을 확인했습니다. 직원 본인의 실제 로그인 시험은 별도입니다.':
+        '신규 직원 ID를 받았으나 연결 상태를 재확인해야 합니다. ID: '+String(data);
+    }catch(verifyError){
+      jbAcctState=null;
+      jbAcctMsg='직원 등록 요청은 성공했으나 목록 확인에 실패했습니다. 중복 등록하지 말고 계정 목록을 새로고침하세요: '+String(verifyError.message||verifyError);
+    }
+  }catch(e){jbAcctMsg='신규 직원 등록 실패: '+String(e.message||e);}
+  finally{jbAcctBusy=false;dashboard();}
+}
 function employeeManagement(){
  const isOwner=profile.app_role==='owner';
  const isEditor=['owner','manager'].includes(profile.app_role);
@@ -3624,7 +3661,8 @@ function dashboard(){
  shell.querySelectorAll('[data-jb-report-nav]').forEach(b=>b.onclick=()=>{view=b.dataset.jbReportNav;dashboard();});
  const acctHomeRefresh=shell.querySelector('#jbAcctHomeRefresh');if(acctHomeRefresh)acctHomeRefresh.onclick=()=>void jbAcctReload();
  shell.querySelectorAll('[data-jb-acct-action]').forEach(b=>b.onclick=()=>void jbAcctAction(b.dataset.jbAcctAction,b.dataset.id));
- shell.querySelectorAll('[data-jb-signup-new]').forEach(b=>b.onclick=()=>{const a=jbPendingSignupAccounts().find(x=>x.id===b.dataset.jbSignupNew);if(!a||!a.confirmed)return;view='employees';jbAcctOpen=true;dashboard();const form=shell.querySelector('#srvEmployeeEmailLink');if(form){const input=form.querySelector('[name="email"]');if(input){input.value=a.email;input.scrollIntoView({block:'center'});}}});
+ shell.querySelectorAll('[data-jb-signup-new]').forEach(b=>b.onclick=()=>{jbAcctSignupFormId=jbAcctSignupFormId===b.dataset.jbSignupNew?'':b.dataset.jbSignupNew;dashboard();});
+ shell.querySelectorAll('.jb-signup-create-form').forEach(f=>f.onsubmit=e=>void jbAcctCreateHomeEmployee(e));
  shell.querySelectorAll('.jb-home-notice-open').forEach(b=>b.onclick=()=>{const id=b.dataset.noticeId;view='announcements';noticeListMode='all';noticeListQuery='';noticeListPage=1;dashboard();const row=shell.querySelector('[data-notice="'+id+'"]');if(row){row.open=true;row.scrollIntoView({block:'center'});void noticeLoadImages(id);void noticeRead(id);} });
  const inboxReadAll=shell.querySelector('#srvInboxReadAll');if(inboxReadAll)inboxReadAll.onclick=()=>jbInboxMark(jbInboxItems().map(x=>x.id));
  const inboxReload=shell.querySelector('#srvInboxReload');if(inboxReload)inboxReload.onclick=loadData;
