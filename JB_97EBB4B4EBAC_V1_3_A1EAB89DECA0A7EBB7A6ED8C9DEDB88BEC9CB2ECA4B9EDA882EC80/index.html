@@ -1233,7 +1233,7 @@ async function loadProfile(){
  let {data:{user},error:authError}=await supa.auth.getUser();if(authError||!user){if(authError){login('연결 오류로 로그인 상태를 확인하지 못했습니다. 인터넷 연결을 확인한 후 다시 시도해 주세요.');return;}login('인증 세션이 없습니다. 로그인하세요.');return;}
  const {data,error}=await supa.from('jb_employees').select('id,name,position,app_role,department_id,active').eq('auth_user_id',user.id).eq('active',true).maybeSingle();
  if(error){login('직원 정보 조회에 실패했습니다. 네트워크 및 접근 권한을 확인하세요. 로그인 세션은 보존됩니다.');return;}if(!data){profile=null;login('이메일 계정 인증은 완료되었지만 아직 직원관리에서 계정 연결·활성화가 필요합니다. 대표님 또는 부서장에게 요청하세요.');return;}
- profile=data;jbAcctOpen=false;jbAcctState=null;jbAcctMsg='';repeatTemplates=[];repeatTemplatesLoaded=false;await loadData();await loadRepeatTemplates();
+ profile=data;jbAcctOpen=false;jbAcctState=null;jbAcctMsg='';repeatTemplates=[];repeatTemplatesLoaded=false;await loadData();await loadRepeatTemplates();if(['owner','manager'].includes(profile?.app_role))void jbAcctReload();
 }
 // V6.6.8.1: 로그인 후 변경된 재직상태/역할을 서버에서 재확인합니다.
 // 이 클라이언트 검사는 사용자 화면을 잠그기 위한 보조 장치입니다.
@@ -1718,17 +1718,36 @@ async function jbSyncCommentAttention(){
 }
 setInterval(()=>{void jbSyncCommentAttention()},20000);
 
+function jbPendingSignupAccounts() {
+  if(!['owner','manager'].includes(profile?.app_role))return [];
+  return (jbAcctState?.accounts||[]).filter(a=>a&&!a.employee&&!a.protected)
+    .sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')));
+}
+function jbSignupHomeRow(a){
+  const eligible=!!a.confirmed&&!a.protected;
+  const options=(jbAcctState?.availableEmployees||[]).filter(e=>e.active===true)
+    .map(e=>`<option value="${safe(e.id)}">${safe(e.name)} (${safe(e.position||e.app_role)})</option>`).join('');
+  return `<div class="jb-report-item" style="display:block;text-align:left" data-jb-signup-id="${safe(a.id)}">
+    <b class="jb-report-itemtitle">회원가입 요청 · ${safe(a.email)}</b>
+    <div class="jb-report-itemmeta">${a.confirmed?'이메일 인증 완료':'이메일 인증 대기'} · ${safe(String(a.created_at||'').slice(0,10))}</div>
+    <div class="srv-row" style="margin-top:8px;gap:6px;flex-wrap:wrap">
+    ${eligible?`<select data-jb-acct-target="${safe(a.id)}" aria-label="연결할 기존 직원" style="min-width:130px;flex:1"><option value="">기존 직원 선택</option>${options}</select><button type="button" data-jb-acct-action="link" data-id="${safe(a.id)}" ${jbAcctBusy?'disabled':''}>직원 연결</button><button type="button" class="alt" data-jb-signup-new="${safe(a.id)}">신규 직원 등록</button>`:
+     `<span class="srv-muted">메일 인증 후 연결할 수 있습니다.</span><button type="button" class="alt" data-jb-acct-action="resend" data-id="${safe(a.id)}" ${jbAcctBusy?'disabled':''}>인증 메일 재발송</button>`}
+    </div></div>`;
+}
 function jbReportPanel(){
  const my=jbReportTasks(),today=localDay(),requests=jbPendingReportRequests(),newTasks=jbPendingNewTaskAssignments(),commentRequests=jbPendingCommentAttention();
  const leaves=profile?.app_role==='manager'?(records.leaves||[]).filter(reviewerCandidate):[];
  const changes=profile?.app_role==='manager'?(records.leaveChanges||[]).filter(c=>c.can_review===true&&c.status==='pending'):[];
+ const signupRequests=jbPendingSignupAccounts();
  const attention=[
+  ...signupRequests.map(a=>({kind:'signup',at:a.created_at||'',value:a})),
   ...newTasks.map(a=>({kind:'newTask',at:a.assigned_at||'',value:a})),
   ...commentRequests.map(a=>({kind:'comment',at:a.created_at||'',value:a})),
   ...requests.map(r=>({kind:'task',at:r.created_at||'',value:r})),
   ...leaves.map(r=>({kind:'leave',at:r.created_at||'',value:r})),
   ...changes.map(c=>({kind:'change',at:c.requested_at||'',value:c}))
- ].sort((a,b)=>String(b.at).localeCompare(String(a.at)));
+ ].sort((a,b)=>(a.kind==='signup'?0:1)-(b.kind==='signup'?0:1)||String(b.at).localeCompare(String(a.at)));
  const overdue=my.filter(t=>t.status!=='completed'&&t.due_date&&t.due_date<today);
  const completedToday=my.filter(t=>t.status==='completed'&&t.completed_at&&new Date(t.completed_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})===today);
  const running=my.filter(t=>t.status==='in_progress');
@@ -1739,6 +1758,7 @@ function jbReportPanel(){
  const chosen=isRequests?attention:({overdue,running,done:completedToday}[jbReportFilter]||[]);
  const ordered=isRequests?attention.slice(0,7):[...chosen].sort((a,b)=>String(a.due_date||'9999-12-31').localeCompare(String(b.due_date||'9999-12-31'))).slice(0,7);
  const attentionRow=item=>{
+  if(item.kind==='signup')return jbSignupHomeRow(item.value);
   if(item.kind==='comment'){
    const a=item.value,t=a.task,c=a.comment;
    const writer=names.get(c?.author_id)||'다른 직원';
@@ -1766,7 +1786,7 @@ function jbReportPanel(){
  <div class="jb-report-list"><div class="jb-report-listhead"><b>${safe(filters.find(x=>x[0]===jbReportFilter)?.[1]||'확인 요청')}</b><span>${chosen.length}건</span></div>
  ${ordered.length?(isRequests?ordered.map(attentionRow).join(''):ordered.map(t=>`<button class="jb-report-item" type="button" data-jb-report-task="${safe(t.id)}" data-jb-report-employee="${safe(t.assignee_id)}"><span class="jb-report-itemtitle">${safe(t.title||'제목 없음')}</span><span class="jb-report-itemmeta">담당: ${safe(names.get(t.assignee_id)||'직원')} · ${safe(t.due_date||'기한 미지정')} · ${safe(status[t.status]||t.status)}</span></button>`).join('')):`<p class="srv-muted">${isRequests?'현재 미확인 요청이 없습니다.':'해당 업무가 없습니다.'}</p>`}
  ${chosen.length>7?`<p class="jb-report-note">최근 7건만 표시합니다. 다른 신청은 휴무·연장근무에서 확인하세요.</p>`:''}</div>
- <div class="jb-report-actions"><button type="button" class="alt" data-jb-report-nav="inbox">🔔 알림 확인</button><button type="button" class="alt" data-jb-report-nav="tasks">내 업무 조회</button></div></section>`;
+ <div class="jb-report-actions">${['owner','manager'].includes(profile?.app_role)?`<button type="button" class="alt" id="jbAcctHomeRefresh" ${jbAcctBusy?'disabled':''}>가입 요청 새로고침${jbAcctState?' ('+signupRequests.length+')':''}</button>`:''}<button type="button" class="alt" data-jb-report-nav="inbox">🔔 알림 확인</button><button type="button" class="alt" data-jb-report-nav="tasks">내 업무 조회</button></div></section>`;
 }
 
 // V1.3: 직원 표시 직함순(권한/DB 저장 순서와 독립적인 화면 정렬).
@@ -2414,6 +2434,7 @@ let directorySearch='',directoryStatus='all',directoryRole='all';
 
 /* V1.3 시험: 회원가입 계정 관리, 서버에서 권한 재검사 */
 let jbAcctOpen=false,jbAcctBusy=false,jbAcctState=null,jbAcctMsg='';
+setInterval(()=>{if(!profile||view!=='home'||!['owner','manager'].includes(profile.app_role)||jbAcctBusy||busy||document.hidden)return;const focused=document.activeElement;if(focused&&shell.contains(focused)&&focused.matches('input,textarea,select,[contenteditable="true"]'))return;void jbAcctReload();},60000);
 function jbAccountAdminPanel(){
  if(!['owner','manager'].includes(profile?.app_role))return '';
  const list=jbAcctState?.accounts||[];
@@ -2427,7 +2448,7 @@ function jbAccountAdminPanel(){
     <div class="srv-row" style="gap:6px;flex-wrap:wrap">
       ${!a.protected&&!a.confirmed?`<button type="button" class="alt" data-jb-acct-action="resend" data-id="${safe(a.id)}"${disabled}>인증메일 재발송</button>`:''}
       ${a.protected?'<span class="srv-muted">보호 계정 · 변경 불가</span>':linked?`<button type="button" class="alt" data-jb-acct-action="unlink" data-id="${safe(a.id)}"${disabled}>로그인 연결 해제</button>`:
-       `<select aria-label="기존 직원 선택" data-jb-acct-target="${safe(a.id)}" style="min-width:125px;flex:1"><option value="">기존 직원 선택</option>${options}</select><button type="button" class="alt" data-jb-acct-action="link" data-id="${safe(a.id)}"${disabled}>기존 직원에 연결</button>`}
+       a.confirmed?`<select aria-label="기존 직원 선택" data-jb-acct-target="${safe(a.id)}" style="min-width:125px;flex:1"><option value="">기존 직원 선택</option>${options}</select><button type="button" class="alt" data-jb-acct-action="link" data-id="${safe(a.id)}"${disabled}>기존 직원에 연결</button>`:'<span class="srv-muted">이메일 인증 후 연결 가능</span>'}
       ${!a.protected&&!linked&&profile.app_role==='owner'?`<button type="button" class="alt" style="color:#a22626" data-jb-acct-action="delete" data-id="${safe(a.id)}"${disabled}>가입 계정 삭제</button>`:''}
     </div>
   </article>`;
@@ -3601,6 +3622,9 @@ function dashboard(){
  shell.querySelectorAll('.jb-comment-attention-ack').forEach(b=>b.onclick=()=>void jbAcknowledgeComment(b.dataset.commentId));
  shell.querySelectorAll('[data-jb-report-task]').forEach(b=>b.onclick=()=>void jbOpenReportTask(b.dataset.jbReportTask,b.dataset.jbReportEmployee));
  shell.querySelectorAll('[data-jb-report-nav]').forEach(b=>b.onclick=()=>{view=b.dataset.jbReportNav;dashboard();});
+ const acctHomeRefresh=shell.querySelector('#jbAcctHomeRefresh');if(acctHomeRefresh)acctHomeRefresh.onclick=()=>void jbAcctReload();
+ shell.querySelectorAll('[data-jb-acct-action]').forEach(b=>b.onclick=()=>void jbAcctAction(b.dataset.jbAcctAction,b.dataset.id));
+ shell.querySelectorAll('[data-jb-signup-new]').forEach(b=>b.onclick=()=>{const a=jbPendingSignupAccounts().find(x=>x.id===b.dataset.jbSignupNew);if(!a||!a.confirmed)return;view='employees';jbAcctOpen=true;dashboard();const form=shell.querySelector('#srvEmployeeEmailLink');if(form){const input=form.querySelector('[name="email"]');if(input){input.value=a.email;input.scrollIntoView({block:'center'});}}});
  shell.querySelectorAll('.jb-home-notice-open').forEach(b=>b.onclick=()=>{const id=b.dataset.noticeId;view='announcements';noticeListMode='all';noticeListQuery='';noticeListPage=1;dashboard();const row=shell.querySelector('[data-notice="'+id+'"]');if(row){row.open=true;row.scrollIntoView({block:'center'});void noticeLoadImages(id);void noticeRead(id);} });
  const inboxReadAll=shell.querySelector('#srvInboxReadAll');if(inboxReadAll)inboxReadAll.onclick=()=>jbInboxMark(jbInboxItems().map(x=>x.id));
  const inboxReload=shell.querySelector('#srvInboxReload');if(inboxReload)inboxReload.onclick=loadData;
@@ -3738,7 +3762,6 @@ function dashboard(){
   if(acctToggle)acctToggle.onclick=()=>{jbAcctOpen=!jbAcctOpen;dashboard();if(jbAcctOpen&&!jbAcctState)void jbAcctReload();};
   const acctRefresh=shell.querySelector('#jbAcctRefresh');
   if(acctRefresh)acctRefresh.onclick=()=>void jbAcctReload();
-  shell.querySelectorAll('[data-jb-acct-action]').forEach(b=>b.onclick=()=>void jbAcctAction(b.dataset.jbAcctAction,b.dataset.id));
   const emailLinker=shell.querySelector('#srvEmployeeEmailLink');if(emailLinker)emailLinker.onsubmit=employeeEmailLink;
   const linker=shell.querySelector('#srvEmployeeLink');if(linker)linker.onsubmit=employeeLink;
   
