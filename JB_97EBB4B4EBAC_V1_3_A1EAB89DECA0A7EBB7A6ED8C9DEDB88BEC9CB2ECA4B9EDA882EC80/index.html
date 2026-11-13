@@ -1725,7 +1725,7 @@ function jbPendingSignupAccounts() {
 }
 function jbSignupHomeRow(a){
   const eligible=!!a.confirmed&&!a.protected;
-  const options=(jbAcctState?.availableEmployees||[]).filter(e=>e.active===true).map(e=>`<option value="${safe(e.id)}">${safe(e.name)} (${safe(e.position||e.app_role)})</option>`).join('');
+  const options=(jbAcctState?.availableEmployees||[]).filter(e=>e.active===true).map(e=>`<option value="${safe(e.id)}">${safe(e.name)} (${safe(e.position||e.app_role)} · ${safe((records.departments||[]).find(d=>d.id===e.department_id)?.name||'부서 미확인')})</option>`).join('');
   const formOpen=jbAcctSignupFormId===a.id;
   const depts=(records.departments||[]).map(d=>`<option value="${safe(d.id)}">${safe(d.name)}</option>`).join('');
   const controls=eligible?
@@ -2440,7 +2440,7 @@ function jbAccountAdminPanel(){
  if(!['owner','manager'].includes(profile?.app_role))return '';
  const list=jbAcctState?.accounts||[];
  const available=jbAcctState?.availableEmployees||[];
- const options=available.map(e=>`<option value="${safe(e.id)}">${safe(e.name)} (${safe(e.position||e.app_role)})</option>`).join('');
+ const options=available.map(e=>`<option value="${safe(e.id)}">${safe(e.name)} (${safe(e.position||e.app_role)} · ${safe((records.departments||[]).find(d=>d.id===e.department_id)?.name||'부서 미확인')}${e.active?'':' · 비활성'})</option>`).join('');
  const items=list.slice().sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))).map(a=>{
   const linked=a.employee,disabled=jbAcctBusy?' disabled':'';
   return `<article class="srv-line" style="padding:10px;border:1px solid #d6e8df;border-radius:10px;margin:8px 0" data-jb-account-row="${safe(a.id)}">
