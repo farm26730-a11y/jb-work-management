@@ -96,6 +96,6 @@ BEGIN
 
   RETURN v_new_id;
 END;
-$function$
+$function$;
 
 NOTIFY pgrst, 'reload schema';
