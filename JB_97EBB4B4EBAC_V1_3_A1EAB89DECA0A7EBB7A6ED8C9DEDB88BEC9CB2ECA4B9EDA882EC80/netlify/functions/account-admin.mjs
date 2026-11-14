@@ -75,7 +75,7 @@ export default async request=>{
      employee:e?{id:e.id,name:e.name,position:e.position,app_role:e.app_role,active:e.active}:null
     };
    }).filter(Boolean);
-   const availableEmployees=staff.filter(e=>!e.auth_user_id&&targetAllowed(actor,e))
+   const availableEmployees=staff.filter(e=>e.active===true&&!e.auth_user_id&&targetAllowed(actor,e))
     .map(e=>({id:e.id,name:e.name,position:e.position,department_id:e.department_id,app_role:e.app_role,active:e.active}));
    return send({accounts,availableEmployees,role:actor.app_role});
   }
@@ -121,10 +121,10 @@ export default async request=>{
    const {data:target,error:targetError}=await db.from('jb_employees')
     .select('id,app_role,active,auth_user_id,department_id').eq('id',employeeId).maybeSingle();
    if(targetError)throw targetError;
-   if(!target||target.auth_user_id)return fail('직원 기록이 없거나 이미 로그인 계정과 연결되어 있습니다.');
+   if(!target||!target.active||target.auth_user_id)return fail('활성 상태의 미연결 직원 기록만 선택할 수 있습니다.');
    if(!targetAllowed(actor,target))return fail('해당 직원 기록에 연결할 권한이 없습니다.',403);
    const {data,error}=await db.from('jb_employees').update({auth_user_id:userId})
-    .eq('id',employeeId).is('auth_user_id',null).select('id');
+    .eq('id',employeeId).eq('active',true).is('auth_user_id',null).select('id');
    if(error)throw error;
    if(data?.length!==1)return fail('직원 기록이 이미 변경됐습니다. 다시 조회하세요.',409);
    console.info('JB account link existing',actor.id,employeeId);
