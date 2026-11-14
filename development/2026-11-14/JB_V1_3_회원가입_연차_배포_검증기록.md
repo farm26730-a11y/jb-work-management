@@ -10,7 +10,7 @@
 ## GitHub 운영 반영
 - 운영 브랜치: `main`.
 - 안전한 배포 커밋: `bdf4f3e192311f70296775f95f367f4a957dc1f2`.
-- `main`의 기존 커밋 `c84e3d7cdaa986cfe8f75f95f367f4a957dc1f2`가 아니라 실제 선행 SHA `c84e3d7cdaa986cfe8f75d1bf5e7025a39880087`를 부모로 하여 두 파일만 선별 반영함.
+- `main`의 기존 커밋 `c84e3d7cdaa986cfe8f75d1bf5e7025a39880087`를 부모로 하여 필요한 두 파일만 반영함.
 - 두 브랜치가 diverged(개발 93 ahead / 14 behind)라 전체 강제 복사/병합을 피함.
 - 변경 1: `JB_97EBB4B4EBAC_V1_3_A1EAB89DECA0A7EBB7A6ED8C9DEDB88BEC9CB2ECA4B9EDA882EC80/index.html` (개발 소스 blob `9038b46334a3777c901c0b28e38877ccc58afd56`)
 - 변경 2: `JB_97EBB4B4EBAC_V1_3_A1EAB89DECA0A7EBB7A6ED8C9DEDB88BEC9CB2ECA4B9EDA882EC80/netlify/functions/account-admin.mjs` (개발 소스 blob `7b989d96f5d05666822910c3883cbe0dd5f39ac0`)
