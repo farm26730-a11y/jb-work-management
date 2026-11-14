@@ -5,11 +5,12 @@ export default async request=>{
  if(request.method!=='GET')return new Response(null,{status:405});
  const url=String(process.env.SUPABASE_URL||'').trim().replace(/\/+$/,'');
  const key=String(process.env.SUPABASE_PUBLISHABLE_KEY||'').trim();
- const ok=/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url)&&key.startsWith('sb_publishable_');
+ // Dedicated development build: never resolve the production database.
+ const ok=url==='https://apkrhhdmjxbvwtdktfaq.supabase.co'&&key.startsWith('sb_publishable_');
  if(!ok)return new Response(JSON.stringify({ready:false}),{
   status:503,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
  });
- return new Response(JSON.stringify({url,key}),{
+ return new Response(JSON.stringify({url,key,environment:'development'}),{
   status:200,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
  });
 };
