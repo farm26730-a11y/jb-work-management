@@ -2193,7 +2193,17 @@ function jbAnnualLeavePanel(){
  const admin=['owner','manager'].includes(profile?.app_role);
  let output='<section class="srv-home-section" style="margin-bottom:15px"><div class="srv-row" style="align-items:center;justify-content:space-between;gap:8px"><h2 style="margin:0">연차 관리 · 입사일 기준</h2><button type="button" class="alt" id="jbAnnualRefresh" '+(jbAnnualLeaveBusy?'disabled':'')+'>새로고침</button></div>';
  if(!jbAnnualLeaveData.loaded)return output+'<p class="srv-muted">직원별 연차 기록을 조회하고 있습니다.</p></section>';
- if(jbAnnualLeaveData.error)return output+'<p class="srv-error">연차 기능을 사용할 수 없습니다: '+safe(jbAnnualLeaveData.error)+'</p><p class="srv-muted">시험용 연차 SQL 설치 여부를 확인하세요. 기존 휴무·근태 신청 기능은 계속 사용할 수 있습니다.</p></section>';
+ if(jbAnnualLeaveData.error){
+  const missing=/PGRST202|Could not find the function|schema cache/i.test(jbAnnualLeaveData.error);
+  if(missing){
+   const project=String(cfg?.url||'').match(/^https:\/\/([a-z0-9-]+)\.supabase\.co/i)?.[1]||'미확인';
+   const isProd=project==='bnonnvgtbukztfhaxgrr';
+   return output+'<p class="srv-muted">연차 관리는 아직 서버 설치가 완료되지 않았습니다.</p>'+
+    '<p class="srv-muted">현재 연결: <b>'+safe(isProd?'운영 서버':'서버 '+project)+'</b> · '+(isProd?'운영 서버에는 시험용 연차 SQL을 설치하지 않았습니다. 개발용 JB-DEV에 연결하여 시험해 주세요.':'개발 서버의 연차 RPC 설치 및 PostgREST 스키마 갱신 상태를 확인해 주세요.')+'</p>'+
+    '<p class="srv-muted">기존 휴무·근태 신청/승인은 그대로 사용할 수 있습니다.</p></section>';
+  }
+  return output+'<p class="srv-error">연차 현황 조회 실패: '+safe(jbAnnualLeaveData.error)+'</p><p class="srv-muted">기존 휴무·근태 신청/승인은 그대로 사용할 수 있습니다.</p></section>';
+ }
  if(jbAnnualLeaveMessage)output+='<p class="srv-note" role="status">'+safe(jbAnnualLeaveMessage)+'</p>';
  if(!rows.length)return output+'<p class="srv-muted">조회할 직원 연차 기록이 없습니다.</p></section>';
  if(!jbAnnualLeaveSelected||!rows.some(x=>x.employee_id===jbAnnualLeaveSelected))jbAnnualLeaveSelected=(rows.find(x=>profile.app_role==='manager'&&x.role==='staff'&&x.department_id===profile.department_id)||rows.find(x=>x.employee_id===profile.id)||rows[0]).employee_id;
