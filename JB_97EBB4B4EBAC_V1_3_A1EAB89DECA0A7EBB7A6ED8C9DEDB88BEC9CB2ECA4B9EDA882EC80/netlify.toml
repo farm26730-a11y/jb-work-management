@@ -3,3 +3,10 @@
   command = "mkdir -p public && cp index.html sw.js manifest.webmanifest jb-icon-192.png jb-icon-512.png jb-work-icon.svg jb-notification-icon.svg jb-notification-96.png public/"
   publish = "public"
   functions = "netlify/functions"
+
+# Dedicated development site only. Do not copy this noindex config to production
+# without separately reviewing the production Netlify project.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow, noarchive"
