@@ -2186,6 +2186,7 @@ async function jbAnnualLeaveRefresh(render=true){
  if(render&&view==='leaves')dashboard();
 }
 function jbAnnualLeaveNumber(n){
+ if(n===null||n===undefined||n==='')return '확인 필요';
  const v=Number(n);
  return Number.isFinite(v)?v.toLocaleString('ko-KR',{maximumFractionDigits:2})+'일':'확인 필요';
 }
@@ -2199,8 +2200,8 @@ function jbAnnualLeavePanel(){
   if(missing){
    const project=String(cfg?.url||'').match(/^https:\/\/([a-z0-9-]+)\.supabase\.co/i)?.[1]||'미확인';
    const isProd=project==='bnonnvgtbukztfhaxgrr';
-   return output+'<p class="srv-muted">연차 관리는 아직 서버 설치가 완료되지 않았습니다.</p>'+
-    '<p class="srv-muted">현재 연결: <b>'+safe(isProd?'운영 서버':'서버 '+project)+'</b> · '+(isProd?'운영 서버에는 시험용 연차 SQL을 설치하지 않았습니다. 개발용 JB-DEV에 연결하여 시험해 주세요.':'개발 서버의 연차 RPC 설치 및 PostgREST 스키마 갱신 상태를 확인해 주세요.')+'</p>'+
+   return output+'<p class="srv-muted">연차 서버 함수를 찾지 못했습니다. 새로고침 후에도 계속되면 연결 정보와 스키마 캐시를 점검하세요.</p>'+
+    '<p class="srv-muted">현재 연결: <b>'+safe(isProd?'운영 서버':'서버 '+project)+'</b> · '+(isProd?'연차 서버 기능은 설치되어 있습니다. 연결 상태와 PostgREST 캐시 갱신 여부를 확인해 주세요.':'현재 연결된 서버에 연차 RPC 설치 여부를 확인해 주세요.')+'</p>'+
     '<p class="srv-muted">기존 휴무·근태 신청/승인은 그대로 사용할 수 있습니다.</p></section>';
   }
   return output+'<p class="srv-error">연차 현황 조회 실패: '+safe(jbAnnualLeaveData.error)+'</p><p class="srv-muted">기존 휴무·근태 신청/승인은 그대로 사용할 수 있습니다.</p></section>';
@@ -2224,14 +2225,18 @@ function jbAnnualLeavePanel(){
  if(chosen.next_grant_due)output+=' · 다음 확인 대상일: <b>'+safe(chosen.next_grant_due)+'</b>';
  if(chosen.hire_date)output+=' · 법정 발생 기준: <b>'+(Number(chosen.years_completed)===0?'매월 개근 1일 (최대 11일)':(Math.min(25,15+Math.floor((Number(chosen.years_completed)-1)/2)))+'일 (출근율 충족 시)')+'</b>';
  output+='</p>';
+ if(chosen.status==='needs_attendance_review')output+='<p class="srv-note">개근·출근율 확인이 필요한 회차 '+Number(chosen.missing_due_count||0)+'건이 있습니다. 아직 실제 잔여 연차를 확정할 수 없습니다.</p>';
+ if(chosen.status==='needs_carryover_review')output+='<p class="srv-note">이전 연차 주기 발생분의 사용·이월 여부를 확인해야 합니다. 잔여 연차는 확정하지 않습니다.</p>';
  if(chosen.unverified_count>0)output+='<p class="srv-error">승인된 연차 중 '+chosen.unverified_count+'건은 연속 날짜 또는 연차주기 경계가 포함되어 차감일수 검토가 필요합니다. 현재 잔여 연차는 확정할 수 없습니다.</p>';
+ if(chosen.status==='ok'&&chosen.available_days!==null&&Number(chosen.available_days)<0)output+='<p class="srv-error">확정 장부의 사용량이 발생분을 초과했습니다. 과거 사용 내역과 조정 사유를 확인해 주세요.</p>';
  if(chosen.hire_date&&Number(chosen.granted_days)===0)output+='<p class="srv-muted">입사일이 등록되어 있어도 개근·출근율 확인 전에는 연차를 자동 확정하지 않습니다.</p>';
  const mayEdit=admin&&(profile.app_role==='owner'||(chosen.role==='staff'&&chosen.employee_id!==profile.id));
  if(mayEdit){
   output+='<details style="margin-top:10px" id="jbAnnualManage"><summary style="font-weight:750;cursor:pointer">입사일·연차 발생·조정 관리</summary><div style="padding:12px 0;display:grid;gap:12px">';
   output+='<div class="srv-line"><label>입사일 (최초 등록, 연차 기록 존재 시 변경 제한)</label><div class="srv-row" style="gap:8px"><input type="date" id="jbAnnualHireDate" value="'+safe(chosen.hire_date||'')+'" style="max-width:210px"><button type="button" id="jbAnnualSaveHire" '+(jbAnnualLeaveBusy?'disabled':'')+'>입사일 저장</button></div></div>';
   if(chosen.hire_date){
-   output+='<div class="srv-line"><b>연차 발생 확정</b><p class="srv-muted">월 개근 또는 직전 1년 출근율 80% 이상을 확인한 경우에만 확정해 주세요.</p><div class="srv-row" style="flex-wrap:wrap;gap:7px"><select id="jbAnnualGrantKind" style="min-width:145px"><option value="monthly">1년 미만 월 개근</option><option value="yearly">1년 이상 연 단위</option></select><label style="flex:1;min-width:100px">회차 (월 1~11 / 연 1~50)<input id="jbAnnualGrantIndex" type="number" min="1" max="50" step="1" value="1"></label></div><label>출근 확인 근거<input id="jbAnnualGrantReason" maxlength="240" placeholder="예: 1개월 소정근로일 개근 확인"></label><label class="srv-row" style="align-items:center"><input type="checkbox" id="jbAnnualGrantConfirm" style="width:auto"> 월 개근 또는 연 출근율을 확인했습니다.</label><button type="button" id="jbAnnualGrantSave" '+(jbAnnualLeaveBusy?'disabled':'')+'>해당 회차 연차 발생 확정</button></div>';
+   const due=Array.isArray(chosen.due_grants)?chosen.due_grants:[];
+   output+='<div class="srv-line"><b>연차 발생 확인</b><p class="srv-muted">아래 발생 예정 회차는 근무 기록을 검토하기 위한 목록입니다. 실제 개근·연간 80% 이상 출근을 확인한 경우에만 장부에 등록합니다. 80% 미만 또는 법정 출근 간주 기간은 별도 확인이 필요합니다.</p><label>확인할 발생 회차<select id="jbAnnualGrantChoice" style="width:100%">'+(due.length?due.map(x=>'<option value="'+safe(x.kind)+':'+safe(x.index)+'">'+safe(x.due)+' · '+safe(x.kind==='monthly'?x.index+'개월 개근':'입사 '+x.index+'년')+' · '+safe(x.days)+'일 확인 대상</option>').join(''):'<option value="">현재 확인 대기 중인 회차 없음</option>')+'</select></label><label>출근 확인 근거<input id="jbAnnualGrantReason" maxlength="240" placeholder="예: 근태표 1개월 개근 확인"></label><label class="srv-row" style="align-items:center"><input type="checkbox" id="jbAnnualGrantConfirm" style="width:auto"> 개근·출근율과 근거를 확인했습니다.</label><button type="button" id="jbAnnualGrantSave" '+(jbAnnualLeaveBusy||!due.length?'disabled':'')+'>해당 발생분 장부에 기록</button></div>';
    output+='<div class="srv-line"><b>과거 사용·기초 잔액 조정</b><p class="srv-muted">중복 발생분이 생기지 않도록 근거를 확인한 뒤 ±일수로 조정합니다. 모든 조정은 이력에 남습니다.</p><div class="srv-row" style="flex-wrap:wrap;gap:8px"><label>조정일수<input type="number" id="jbAnnualAdjustDays" step="0.5" min="-25" max="25" placeholder="예: -2 또는 1.5"></label><label style="flex:2;min-width:150px">조정 사유<input id="jbAnnualAdjustReason" maxlength="240" placeholder="예: 전산 도입 이전 연차 사용분"></label></div><button type="button" id="jbAnnualAdjustSave" '+(jbAnnualLeaveBusy?'disabled':'')+'>조정 기록 저장</button></div>';
   }
   output+='</div></details>';
@@ -2247,7 +2252,9 @@ function jbAnnualLeavePanel(){
    output+='</details>';
   }
  }else if(admin)output+='<p class="srv-muted">관리자 본인의 연차 발생 확정·수정은 대표님 권한으로 처리합니다.</p>';
- output+='<p class="srv-muted" style="font-size:12px;margin-top:12px">승인된 하루 연차는 1일, 오전·오후 반차는 0.5일로 계산합니다. 여러 날짜에 걸친 신청은 근무일 확인 후 차감합니다. 법정 연차 사용기한·휴직·80% 미만 출근·시간단위 휴가 등 예외는 별도 확인이 필요합니다.</p></section>';
+ const granted=Array.isArray(chosen.grant_history)?chosen.grant_history:[];
+ if(granted.length)output+='<details style="margin-top:10px"><summary style="font-weight:750;cursor:pointer">연차 발생 이력 ('+granted.length+'건)</summary>'+granted.map(g=>'<div class="srv-line">'+safe(g.grant_date)+' · '+safe(g.kind==='monthly'?'월 개근':'연간 발생')+' '+jbAnnualLeaveNumber(g.days)+' · 사용기한 '+safe(g.expires_on)+'</div>').join('')+'</details>';
+ output+='<p class="srv-muted" style="font-size:12px;margin-top:12px">승인된 하루 연차는 1일, 오전·오후 반차는 0.5일로 계산합니다. 여러 날짜에 걸친 신청은 근무일 확인 후 차감합니다. 과거 미사용·이월, 80% 미만 출근 등은 인사 담당자의 확인이 필요합니다.</p></section>';
  return output;
 }
 async function jbAnnualLeaveAction(kind,requestId=''){
@@ -2262,10 +2269,13 @@ async function jbAnnualLeaveAction(kind,requestId=''){
   rpc='jb_annual_leave_set_hire_date_v13';args={p_employee_id:id,p_hire_date:date};message='입사일 저장';
  }else if(kind==='grant'){
   const confirmed=shell.querySelector('#jbAnnualGrantConfirm')?.checked;
-  const grantKind=shell.querySelector('#jbAnnualGrantKind')?.value;
-  const index=Number(shell.querySelector('#jbAnnualGrantIndex')?.value);
+  const choice=String(shell.querySelector('#jbAnnualGrantChoice')?.value||'');
+  const [grantKind,indexText]=choice.split(':');
+  const index=Number(indexText);
+  const availableChoices=Array.isArray(chosen.due_grants)?chosen.due_grants:[];
+  const isDue=availableChoices.some(x=>x.kind===grantKind&&Number(x.index)===index);
   const reason=shell.querySelector('#jbAnnualGrantReason')?.value.trim()||'';
-  if(!confirmed||reason.length<4||!Number.isInteger(index)||index<1||index>(grantKind==='monthly'?11:50)){
+  if(!confirmed||!isDue||reason.length<4||!Number.isInteger(index)||index<1||index>(grantKind==='monthly'?11:50)){
    jbAnnualLeaveMessage='개근·출근율 확인을 체크하고, 올바른 회차와 4자 이상의 확인 근거를 입력하세요.';dashboard();return;
   }
   rpc='jb_annual_leave_confirm_grant_v13';args={p_employee_id:id,p_grant_kind:grantKind,p_period_index:index,p_verification_note:reason};message='연차 발생 확정';
