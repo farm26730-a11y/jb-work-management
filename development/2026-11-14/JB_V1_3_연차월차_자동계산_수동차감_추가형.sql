@@ -63,8 +63,8 @@ BEGIN
                     ELSE 'estimated_attendance' END;
    -- 윤일 입사자의 2/28 비윤년 주기는 AGE()와 실제 날짜 더하기의
    -- 주년 판정이 어긋날 수 있으므로 잔액을 확정하지 않고 예외로 분류.
-   IF pg_catalog.extract(month FROM v_hire)=2
-      AND pg_catalog.extract(day FROM v_hire)=29
+   IF EXTRACT(month FROM v_hire)=2
+      AND EXTRACT(day FROM v_hire)=29
       AND (v_hire+pg_catalog.make_interval(years=>v_years+1))::date<=v_today THEN
      v_balance := NULL;
      v_status := 'needs_calendar_review';
