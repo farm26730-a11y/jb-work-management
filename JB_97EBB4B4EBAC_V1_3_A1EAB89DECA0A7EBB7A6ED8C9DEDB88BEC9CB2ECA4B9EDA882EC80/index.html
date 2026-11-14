@@ -2196,7 +2196,7 @@ function jbAnnualLeavePanel(){
  if(jbAnnualLeaveData.error)return output+'<p class="srv-error">연차 기능을 사용할 수 없습니다: '+safe(jbAnnualLeaveData.error)+'</p><p class="srv-muted">시험용 연차 SQL 설치 여부를 확인하세요. 기존 휴무·근태 신청 기능은 계속 사용할 수 있습니다.</p></section>';
  if(jbAnnualLeaveMessage)output+='<p class="srv-note" role="status">'+safe(jbAnnualLeaveMessage)+'</p>';
  if(!rows.length)return output+'<p class="srv-muted">조회할 직원 연차 기록이 없습니다.</p></section>';
- if(!jbAnnualLeaveSelected||!rows.some(x=>x.employee_id===jbAnnualLeaveSelected))jbAnnualLeaveSelected=(rows.find(x=>x.employee_id===profile.id)||rows[0]).employee_id;
+ if(!jbAnnualLeaveSelected||!rows.some(x=>x.employee_id===jbAnnualLeaveSelected))jbAnnualLeaveSelected=(rows.find(x=>profile.app_role==='manager'&&x.role==='staff'&&x.department_id===profile.department_id)||rows.find(x=>x.employee_id===profile.id)||rows[0]).employee_id;
  const chosen=rows.find(x=>x.employee_id===jbAnnualLeaveSelected);
  if(admin){
   output+='<label for="jbAnnualEmpSelect">조회할 직원</label><select id="jbAnnualEmpSelect" style="width:100%;max-width:340px">';
@@ -2211,6 +2211,7 @@ function jbAnnualLeavePanel(){
  output+='<p class="srv-muted">입사일: <b>'+safe(chosen.hire_date||'미등록')+'</b>';
  if(chosen.cycle_start)output+=' · 산정 기간: '+safe(chosen.cycle_start)+' ~ '+safe(chosen.cycle_end);
  if(chosen.next_grant_due)output+=' · 다음 확인 대상일: <b>'+safe(chosen.next_grant_due)+'</b>';
+ if(chosen.hire_date)output+=' · 법정 발생 기준: <b>'+(Number(chosen.years_completed)===0?'매월 개근 1일 (최대 11일)':(Math.min(25,15+Math.floor((Number(chosen.years_completed)-1)/2)))+'일 (출근율 충족 시)')+'</b>';
  output+='</p>';
  if(chosen.unverified_count>0)output+='<p class="srv-error">승인된 연차 중 '+chosen.unverified_count+'건은 연속 날짜 또는 연차주기 경계가 포함되어 차감일수 검토가 필요합니다. 현재 잔여 연차는 확정할 수 없습니다.</p>';
  if(chosen.hire_date&&Number(chosen.granted_days)===0)output+='<p class="srv-muted">입사일이 등록되어 있어도 개근·출근율 확인 전에는 연차를 자동 확정하지 않습니다.</p>';
