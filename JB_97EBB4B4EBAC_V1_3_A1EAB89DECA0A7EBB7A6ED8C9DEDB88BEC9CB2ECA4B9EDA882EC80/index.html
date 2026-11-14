@@ -2469,13 +2469,54 @@ async function leaveReviewChange(id,decision){
 }
 async function leaveReview(id,decision){
  if(leaveSaving||!['approved','rejected'].includes(decision))return;
- const r=records.leaves.find(x=>x.id===id);if(!r||r.employee_id===profile.id)return;
- if(!confirm(`${decision==='approved'?'승인':'반려'} 처리할까요? 처리 결과는 서버에 저장됩니다.`))return;
+ const r=records.leaves.find(x=>x.id===id);
+ if(!r||r.employee_id===profile.id)return;
+ const isLeave=r.request_type==='leave';
+ let actualDays=null,reviewNote=null,reviewStatus='not_annual';
+ // 개발본: 직원 연차·반차 승인 전에 서버의 최신 사용/발생 장부를 다시 조회.
+ // 기존 운영용 jb_review_leave_companywide는 변경하지 않음.
+ if(isLeave&&decision==='approved'){
+  const checked=await supa.rpc('jb_annual_leave_check_request_v13',{p_request_id:id});
+  if(checked.error){
+   alert('연차 사전 확인을 완료하지 못했습니다. 승인하지 않았습니다: '+String(checked.error.message||checked.error));return;
+  }
+  reviewStatus=String(checked.data?.status||'unknown');
+  if(reviewStatus==='multi_day_review'){
+   const defaultDays=Math.min(31,Math.max(1,(Date.parse(r.end_date)-Date.parse(r.start_date))/86400000+1));
+   const input=prompt('여러 날 연차입니다. 주말·법정휴일·소정근로일을 확인하고 실제 차감할 일수를 입력하세요. (0.5일 단위, 최대 31일)',String(defaultDays));
+   if(input===null)return;
+   actualDays=Number(input);
+   if(!Number.isFinite(actualDays)||actualDays<=0||actualDays>31||actualDays*2!==Math.trunc(actualDays*2)){
+    alert('실제 소정근로일수는 0.5일 단위, 0보다 크고 31일 이하로 입력하세요.');return;
+   }
+  }
+  if(reviewStatus!=='ready'&&reviewStatus!=='not_annual'){
+   const descriptions={
+    hire_date_missing:'입사일이 등록되지 않았습니다.',
+    balance_unconfirmed:'근태·연차 발생이나 이전 사용 내역의 확인이 필요합니다.',
+    multi_day_review:'여러 날 연차의 실제 차감일수를 확인해야 합니다.',
+    insufficient:'확정된 장부 잔여일수보다 신청일수가 많습니다.',
+    outside_cycle:'휴가 예정일이 현재 연차 산정기간 밖입니다.',
+    future_request_review:'미래 휴가의 사용 가능 일수는 예정일 기준 재확인이 필요합니다.'
+   };
+   const reason=prompt((descriptions[reviewStatus]||'연차 발생·사용 기록을 확인해야 합니다.')+'\n법정 연차를 전산 등록 누락만으로 자동 거부하지는 않습니다. 근태·잔액과 차감 근거를 검토한 후, 승인할 경우 확인 사유를 8자 이상 입력해 주세요.');
+   if(reason===null)return;
+   reviewNote=reason.trim();
+   if(reviewNote.length<8){alert('승인 확인 사유를 8자 이상 입력해 주세요.');return;}
+  }
+ }
+ if(!confirm((decision==='approved'?'승인':'반려')+' 처리할까요?'+(isLeave&&decision==='approved'&&reviewStatus!=='ready'&&reviewStatus!=='not_annual'?'\n연차 확인 사항과 근거가 별도로 기록됩니다.':'')+'\n처리 결과는 서버에 저장됩니다.'))return;
  leaveSaving=true;leaveFeedback='';dashboard();
- const {error}=await supa.rpc('jb_review_leave_companywide',{p_request_id:id,p_decision:decision});
- leaveSaving=false;
- if(error){alert('승인·반려 서버 처리 실패: '+error.message+'\n오류 코드: '+(error.code||'없음')+'\n관리자 및 신청자 계정의 권한을 확인하세요.');dashboard();return;}
- await loadData();leaveFeedback='서버에 '+(decision==='approved'?'승인':'반려')+' 처리했습니다.';dashboard();
+ try{
+  const rpc=isLeave?'jb_annual_leave_review_request_v13':'jb_review_leave_companywide';
+  const args=isLeave?{p_request_id:id,p_decision:decision,p_approval_days:actualDays,p_review_note:reviewNote}:{p_request_id:id,p_decision:decision};
+  const {error}=await supa.rpc(rpc,args);
+  if(error)throw error;
+  await loadData();
+  leaveFeedback='서버에 '+(decision==='approved'?'승인':'반려')+' 처리했습니다.';dashboard();
+ }catch(error){
+  alert('승인·반려 서버 처리 실패: '+String(error?.message||error)+'\n오류 코드: '+String(error?.code||'없음')+'\n연차·근태 기록과 승인 권한을 확인해 주세요.');
+ }finally{leaveSaving=false;dashboard();}
 }
 let noticeEditing=null,noticeInfo='',noticeFailure='',noticeSaving=false,noticeDeleting=false;
 let noticeListMode='all',noticeListPage=1,noticeListQuery='';
