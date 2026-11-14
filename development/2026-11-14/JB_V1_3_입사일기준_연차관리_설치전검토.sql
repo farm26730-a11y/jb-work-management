@@ -1,15 +1,21 @@
 -- JB 업무관리 V1.3 / 입사일 기준 연차(개발시험용)
--- 적용 대상은 JB-DEV이며 운영 Supabase에는 실행하지 말 것.
+-- 2026-11-14: 운영 Supabase에 연차 관리 전용 구조를 추가하는 설치 SQL. GitHub main/운영 UI 수정 없음.
 -- 기존 직원 입사일은 모름(NULL)으로 두며 임의 추정하지 않음.
 -- 월 개근/연 80% 출근율은 관리자가 별도 확인 후 발생 확정.
 -- 반차는 0.5일, 다일 연차는 소정근로일 확인 후 사용일수 확정.
--- 업무 초기화 함수는 신규 세 테이블을 24개 초기화 대상으로 포함함.
--- 개인 인사 및 휴가 기록을 포함하므로 운영 적용 전에 백업, 법률 검토 필수.
+-- 기존 jb_owner_reset_operations_v11 초기화 함수는 변경하지 않음. 연차 장부는 별도 스키마에 보존.
+-- 입사일은 신규 컬럼에 NULL 기본값. 기존 업무/직원/연차 신청 데이터를 삭제·변경하지 않음.
+
+-- 별도 스키마의 연차 장부는 운영 기록 초기화 대상에서 제외. 
+-- 새 장부가 기존 jb_* 테이블 초기화에 FK 차단을 일으키지 않도록
+-- usage는 삭제 가능한 신청 테이블에 직접 FK를 두지 않고 신청 당시 정보를 보존함.
+CREATE SCHEMA IF NOT EXISTS jb_hr;
+REVOKE ALL ON SCHEMA jb_hr FROM PUBLIC, anon, authenticated;
 
 ALTER TABLE public.jb_employees
   ADD COLUMN IF NOT EXISTS hire_date date;
 
-CREATE TABLE IF NOT EXISTS public.jb_annual_leave_grants_v13 (
+CREATE TABLE IF NOT EXISTS jb_hr.annual_leave_grants_v13 (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id uuid NOT NULL REFERENCES public.jb_employees(id) ON DELETE RESTRICT,
   grant_kind text NOT NULL CHECK (grant_kind IN ('monthly','yearly')),
@@ -26,7 +32,7 @@ CREATE TABLE IF NOT EXISTS public.jb_annual_leave_grants_v13 (
   CONSTRAINT jb_annual_grant_dates_v13 CHECK(period_start<=period_end AND period_end<grant_date AND grant_date<=expires_on)
 );
 
-CREATE TABLE IF NOT EXISTS public.jb_annual_leave_adjustments_v13 (
+CREATE TABLE IF NOT EXISTS jb_hr.annual_leave_adjustments_v13 (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id uuid NOT NULL REFERENCES public.jb_employees(id) ON DELETE RESTRICT,
   effective_date date NOT NULL DEFAULT current_date,
@@ -36,8 +42,11 @@ CREATE TABLE IF NOT EXISTS public.jb_annual_leave_adjustments_v13 (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS public.jb_annual_leave_usage_v13 (
-  request_id uuid PRIMARY KEY REFERENCES public.jb_leave_requests(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS jb_hr.annual_leave_usage_v13 (
+  request_id uuid PRIMARY KEY,
+  employee_id uuid NOT NULL REFERENCES public.jb_employees(id) ON DELETE RESTRICT,
+  start_date date NOT NULL,
+  end_date date NOT NULL,
   days numeric(6,2) NOT NULL CHECK (days > 0 AND days <= 31),
   note text NOT NULL CHECK (length(btrim(note)) >= 4),
   confirmed_by uuid NOT NULL REFERENCES public.jb_employees(id) ON DELETE RESTRICT,
@@ -45,16 +54,16 @@ CREATE TABLE IF NOT EXISTS public.jb_annual_leave_usage_v13 (
 );
 
 CREATE INDEX IF NOT EXISTS jb_annual_grants_employee_date_idx_v13
- ON public.jb_annual_leave_grants_v13(employee_id,grant_date);
+ ON jb_hr.annual_leave_grants_v13(employee_id,grant_date);
 CREATE INDEX IF NOT EXISTS jb_annual_adjustments_employee_date_idx_v13
- ON public.jb_annual_leave_adjustments_v13(employee_id,effective_date);
+ ON jb_hr.annual_leave_adjustments_v13(employee_id,effective_date);
 
-ALTER TABLE public.jb_annual_leave_grants_v13 ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.jb_annual_leave_adjustments_v13 ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.jb_annual_leave_usage_v13 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE jb_hr.annual_leave_grants_v13 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE jb_hr.annual_leave_adjustments_v13 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE jb_hr.annual_leave_usage_v13 ENABLE ROW LEVEL SECURITY;
 -- 데이터 접근은 반드시 권한 검증이 있는 RPC 경유. 기본 직접 접근 금지.
-REVOKE ALL ON TABLE public.jb_annual_leave_grants_v13, public.jb_annual_leave_adjustments_v13,
-  public.jb_annual_leave_usage_v13 FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE jb_hr.annual_leave_grants_v13, jb_hr.annual_leave_adjustments_v13,
+  jb_hr.annual_leave_usage_v13 FROM PUBLIC, anon, authenticated;
 
 -- 관리자/대표만 입사일 수정. 실제 연차 발생 기록 후에는 입사일 변경 금지.
 CREATE OR REPLACE FUNCTION public.jb_annual_leave_set_hire_date_v13(p_employee_id uuid,p_hire_date date)
@@ -73,8 +82,8 @@ BEGIN
    RAISE EXCEPTION '유효한 입사일을 입력하세요';
  END IF;
  IF v_target.hire_date IS DISTINCT FROM p_hire_date AND
-   (EXISTS(SELECT 1 FROM public.jb_annual_leave_grants_v13 WHERE employee_id=p_employee_id)
-    OR EXISTS(SELECT 1 FROM public.jb_annual_leave_adjustments_v13 WHERE employee_id=p_employee_id)) THEN
+   (EXISTS(SELECT 1 FROM jb_hr.annual_leave_grants_v13 WHERE employee_id=p_employee_id)
+    OR EXISTS(SELECT 1 FROM jb_hr.annual_leave_adjustments_v13 WHERE employee_id=p_employee_id)) THEN
    RAISE EXCEPTION '연차 기록이 존재합니다. 입사일 변경 전 기록 정정 절차를 확인해야 합니다';
  END IF;
  UPDATE public.jb_employees SET hire_date=p_hire_date WHERE id=p_employee_id;
@@ -110,7 +119,7 @@ BEGIN
  ELSE RAISE EXCEPTION '잘못된 연차 발생 구분 또는 회차입니다'; END IF;
  IF v_grant>current_date THEN RAISE EXCEPTION '아직 발생일이 도래하지 않았습니다'; END IF;
  IF v_expire<current_date THEN RAISE EXCEPTION '기존 발생분의 사용기한이 지났습니다. 과거 기록 정정 절차로 처리하세요'; END IF;
- INSERT INTO public.jb_annual_leave_grants_v13
+ INSERT INTO jb_hr.annual_leave_grants_v13
  (employee_id,grant_kind,period_index,period_start,period_end,grant_date,expires_on,days,verification_note,verified_by)
  VALUES (p_employee_id,p_grant_kind,p_period_index,v_start,v_grant-1,v_grant,v_expire,v_days,btrim(p_verification_note),v_me.id)
  ON CONFLICT(employee_id,grant_kind,period_index) DO NOTHING RETURNING id INTO v_id;
@@ -134,7 +143,7 @@ BEGIN
  IF p_days IS NULL OR p_days=0 OR abs(p_days)>25 OR length(btrim(coalesce(p_reason,'')))<4 THEN
    RAISE EXCEPTION '조정일수(±25일 이내)와 4자 이상의 사유가 필요합니다';
  END IF;
- INSERT INTO public.jb_annual_leave_adjustments_v13(employee_id,days,reason,recorded_by)
+ INSERT INTO jb_hr.annual_leave_adjustments_v13(employee_id,days,reason,recorded_by)
  VALUES (p_employee_id,p_days,btrim(p_reason),v_me.id) RETURNING id INTO v_id;
  RETURN v_id;
 END;$f$;
@@ -167,10 +176,12 @@ BEGIN
  OR length(btrim(coalesce(p_note,'')))<4 THEN
    RAISE EXCEPTION '소정근로일을 확인해 올바른 차감일수와 사유를 입력하세요';
  END IF;
- INSERT INTO public.jb_annual_leave_usage_v13(request_id,days,note,confirmed_by)
- VALUES(p_request_id,p_days,btrim(p_note),v_me.id)
- ON CONFLICT(request_id) DO UPDATE SET days=EXCLUDED.days,note=EXCLUDED.note,
- confirmed_by=EXCLUDED.confirmed_by,updated_at=now();
+ INSERT INTO jb_hr.annual_leave_usage_v13(request_id,employee_id,start_date,end_date,days,note,confirmed_by)
+ VALUES(p_request_id,v_request.employee_id,v_request.start_date,v_request.end_date,p_days,btrim(p_note),v_me.id)
+ ON CONFLICT(request_id) DO UPDATE
+ SET employee_id=EXCLUDED.employee_id,start_date=EXCLUDED.start_date,end_date=EXCLUDED.end_date,
+     days=EXCLUDED.days,note=EXCLUDED.note,
+     confirmed_by=EXCLUDED.confirmed_by,updated_at=now();
 END;$f$;
 
 -- 실시간 연차 현황. 본인은 본인만; 관리자는 본인+같은 부서 직원; 대표는 직원 전원.
@@ -200,10 +211,10 @@ BEGIN
    v_years=GREATEST(0,extract(year from age(current_date,v_e.hire_date))::integer);
    v_from=(v_e.hire_date+make_interval(years=>v_years))::date;
    v_until=(v_e.hire_date+make_interval(years=>v_years+1))::date;
-   SELECT COALESCE(sum(g.days),0) INTO v_grants FROM public.jb_annual_leave_grants_v13 g
+   SELECT COALESCE(sum(g.days),0) INTO v_grants FROM jb_hr.annual_leave_grants_v13 g
     WHERE g.employee_id=v_e.id AND g.grant_date>=v_from AND g.grant_date<v_until
       AND g.grant_date<=current_date AND g.expires_on>=current_date;
-   SELECT COALESCE(sum(a.days),0) INTO v_adjust FROM public.jb_annual_leave_adjustments_v13 a
+   SELECT COALESCE(sum(a.days),0) INTO v_adjust FROM jb_hr.annual_leave_adjustments_v13 a
     WHERE a.employee_id=v_e.id AND a.effective_date>=v_from AND a.effective_date<v_until;
    SELECT COALESCE(sum(CASE
       WHEN l.start_date<v_from OR l.end_date>=v_until THEN 0
@@ -214,7 +225,7 @@ BEGIN
                     OR (u.request_id IS NULL AND l.start_date<>l.end_date))
    INTO v_used,v_unverified
    FROM public.jb_leave_requests l
-    LEFT JOIN public.jb_annual_leave_usage_v13 u ON u.request_id=l.id
+    LEFT JOIN jb_hr.annual_leave_usage_v13 u ON u.request_id=l.id
    WHERE l.employee_id=v_e.id AND l.request_type='leave' AND l.approval_status='approved'
     AND l.leave_category IN ('annual','half_am','half_pm')
     AND l.start_date<v_until AND l.end_date>=v_from;
@@ -225,7 +236,7 @@ BEGIN
     SELECT l.id,l.start_date,l.end_date,l.leave_category,
       (l.start_date<v_from OR l.end_date>=v_until) AS cross_cycle
     FROM public.jb_leave_requests l
-      LEFT JOIN public.jb_annual_leave_usage_v13 u ON u.request_id=l.id
+      LEFT JOIN jb_hr.annual_leave_usage_v13 u ON u.request_id=l.id
     WHERE l.employee_id=v_e.id AND l.request_type='leave' AND l.approval_status='approved'
       AND l.leave_category IN ('annual','half_am','half_pm')
       AND l.start_date<v_until AND l.end_date>=v_from
@@ -237,7 +248,7 @@ BEGIN
    IF v_years=0 THEN
       FOR v_i IN 1..11 LOOP
         v_due=(v_e.hire_date+make_interval(months=>v_i))::date;
-        IF NOT EXISTS(SELECT 1 FROM public.jb_annual_leave_grants_v13 g
+        IF NOT EXISTS(SELECT 1 FROM jb_hr.annual_leave_grants_v13 g
            WHERE g.employee_id=v_e.id AND g.grant_kind='monthly' AND g.period_index=v_i) THEN
            v_next=v_due; EXIT;
         END IF;
@@ -245,7 +256,7 @@ BEGIN
    ELSE
       -- 이번 연도 발생분이 미확정이면 해당 발생일, 이미 확정되면 다음 기념일을 표시.
       v_next=v_from;
-      IF EXISTS(SELECT 1 FROM public.jb_annual_leave_grants_v13 g
+      IF EXISTS(SELECT 1 FROM jb_hr.annual_leave_grants_v13 g
                  WHERE g.employee_id=v_e.id AND g.grant_kind='yearly' AND g.period_index=v_years) THEN
          v_next=v_until;
       END IF;
@@ -275,138 +286,6 @@ GRANT EXECUTE ON FUNCTION public.jb_annual_leave_adjust_v13(uuid,numeric,text) T
 GRANT EXECUTE ON FUNCTION public.jb_annual_leave_confirm_usage_v13(uuid,numeric,text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.jb_annual_leave_overview_v13() TO authenticated;
 
--- 운영 초기화의 신규 테이블 누락 방지: 총 24개 초기화, 8개 보존.
--- 함수 재정의만 수행하며 실제 초기화는 하지 않습니다.
 
-CREATE OR REPLACE FUNCTION public.jb_owner_reset_operations_v11(p_phrase text, p_backup_confirmed boolean)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO ''
-AS $function$
-DECLARE
-    v_owner uuid;
-    v_reset regclass[] := ARRAY[
-        'public.jb_announcement_reads'::regclass,
-        'public.jb_announcements'::regclass,
-        'public.jb_attendance'::regclass,
-        'public.jb_attendance_notes'::regclass,
-        'public.jb_events'::regclass,
-        'public.jb_leave_change_requests'::regclass,
-        'public.jb_leave_request_audit'::regclass,
-        'public.jb_leave_requests'::regclass,
-        'public.jb_notification_reads'::regclass,
-        'public.jb_push_outbox'::regclass,
-        'public.jb_task_comments'::regclass,
-        'public.jb_task_history'::regclass,
-        'public.jb_task_images'::regclass,
-        'public.jb_task_report_requests'::regclass,
-        'public.jb_tasks'::regclass,
-        'public.jb_task_assignment_ack_v13'::regclass,
-        'public.jb_task_comment_attention_v13'::regclass,
-        'public.jb_meal_employee_v14'::regclass,
-        'public.jb_meal_guest_v14'::regclass,
-        'public.jb_meal_regular_orders_v15'::regclass,
-        'public.jb_meal_rosters'::regclass,
-        'public.jb_annual_leave_grants_v13'::regclass,
-        'public.jb_annual_leave_adjustments_v13'::regclass,
-        'public.jb_annual_leave_usage_v13'::regclass
-    ];
-    v_preserve regclass[] := ARRAY[
-        'public.jb_departments'::regclass,
-        'public.jb_employees'::regclass,
-        'public.jb_meal_regular_people_v15'::regclass,
-        'public.jb_meal_settings'::regclass,
-        'public.jb_name_login_attempts'::regclass,
-        'public.jb_push_subscriptions'::regclass,
-        'public.jb_staff_contact_numbers'::regclass,
-        'public.jb_task_templates'::regclass
-    ];
-    v_unknown text;
-    v_blockers text;
-BEGIN
-    SELECT e.id INTO v_owner
-      FROM public.jb_employees AS e
-     WHERE e.auth_user_id = (SELECT auth.uid())
-       AND e.app_role = 'owner'
-       AND e.active IS TRUE
-     LIMIT 1;
-    IF v_owner IS NULL THEN
-        RAISE EXCEPTION '재직 중인 대표 계정만 운영 기록을 초기화할 수 있습니다'
-            USING ERRCODE = '42501';
-    END IF;
-
-    IF p_phrase IS DISTINCT FROM '운영기록 전체 초기화'
-       OR p_backup_confirmed IS DISTINCT FROM TRUE THEN
-        RAISE EXCEPTION '백업 완료 확인 및 정확한 확인 문구가 필요합니다';
-    END IF;
-
-    PERFORM pg_advisory_xact_lock(31535, 11);
-
-    -- 미래에 새 JB 업무관리 테이블이 추가되면 누락/무단삭제 없이 즉시 중단.
-    SELECT string_agg(c.oid::regclass::text, ', ' ORDER BY c.relname)
-      INTO v_unknown
-      FROM pg_class AS c
-      JOIN pg_namespace AS n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'public'
-       AND c.relkind IN ('r','p')
-       AND c.relname LIKE 'jb_%'
-       AND NOT (c.oid::regclass = ANY(v_reset))
-       AND NOT (c.oid::regclass = ANY(v_preserve));
-    IF v_unknown IS NOT NULL THEN
-        RAISE EXCEPTION '초기화 대상이 지정되지 않은 새 테이블이 있습니다: %', v_unknown;
-    END IF;
-
-    -- 다른 스키마 포함 모든 FK 확인. 새 참조가 생겨도 CASCADE 강제삭제 금지.
-    SELECT string_agg(
-             format('%s → %s (%s)', fk.conrelid::regclass::text, fk.confrelid::regclass::text, fk.conname),
-             ', ' ORDER BY fk.conname
-           )
-      INTO v_blockers
-      FROM pg_constraint AS fk
-     WHERE fk.contype = 'f'
-       AND fk.confrelid::regclass = ANY(v_reset)
-       AND NOT (fk.conrelid::regclass = ANY(v_reset));
-    IF v_blockers IS NOT NULL THEN
-        RAISE EXCEPTION '운영 기록 초기화 차단 외래키: %', v_blockers;
-    END IF;
-
-    -- 모든 참조 자식 테이블을 명시하고 RESTRICT로 의도치 않은 삭제를 막습니다.
-    TRUNCATE TABLE
-        public.jb_announcement_reads,
-        public.jb_announcements,
-        public.jb_attendance,
-        public.jb_attendance_notes,
-        public.jb_events,
-        public.jb_leave_change_requests,
-        public.jb_leave_request_audit,
-        public.jb_leave_requests,
-        public.jb_notification_reads,
-        public.jb_push_outbox,
-        public.jb_task_comments,
-        public.jb_task_history,
-        public.jb_task_images,
-        public.jb_task_report_requests,
-        public.jb_tasks,
-        public.jb_task_assignment_ack_v13,
-        public.jb_task_comment_attention_v13,
-        public.jb_meal_employee_v14,
-        public.jb_meal_guest_v14,
-        public.jb_meal_regular_orders_v15,
-        public.jb_meal_rosters,
-        public.jb_annual_leave_grants_v13,
-        public.jb_annual_leave_adjustments_v13,
-        public.jb_annual_leave_usage_v13
-    RESTRICT;
-
-    RETURN jsonb_build_object(
-        'success', true,
-        'reset_table_count', cardinality(v_reset),
-        'preserved_table_count', cardinality(v_preserve),
-        'reset_at', now()
-    );
-END;
-$function$;
-
-REVOKE ALL ON FUNCTION public.jb_owner_reset_operations_v11(text,boolean) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.jb_owner_reset_operations_v11(text,boolean) TO authenticated;
+-- 새 RPC가 바로 API에서 인식되도록 PostgREST 스키마 캐시 갱신을 알립니다.
+NOTIFY pgrst, 'reload schema';
