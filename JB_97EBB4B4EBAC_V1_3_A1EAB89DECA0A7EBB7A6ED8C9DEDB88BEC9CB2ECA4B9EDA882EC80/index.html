@@ -1787,7 +1787,7 @@ function jbReportPanel(){
  ${['owner','manager'].includes(profile?.app_role)&&!jbAcctState?`<p class="srv-muted">${safe(jbAcctMsg||'가입 요청 목록 확인 중…')} · 가입 요청 새로고침을 눌러 확인하세요.</p>`:jbAcctMsg&&jbAcctMsg!=='현재 계정 상태입니다.'?`<p class="srv-muted">${safe(jbAcctMsg)}</p>`:''}
  <div class="jb-report-list"><div class="jb-report-listhead"><b>${safe(filters.find(x=>x[0]===jbReportFilter)?.[1]||'확인 요청')}</b><span>${chosen.length}건</span></div>
  ${ordered.length?(isRequests?ordered.map(attentionRow).join(''):ordered.map(t=>`<button class="jb-report-item" type="button" data-jb-report-task="${safe(t.id)}" data-jb-report-employee="${safe(t.assignee_id)}"><span class="jb-report-itemtitle">${safe(t.title||'제목 없음')}</span><span class="jb-report-itemmeta">담당: ${safe(names.get(t.assignee_id)||'직원')} · ${safe(t.due_date||'기한 미지정')} · ${safe(status[t.status]||t.status)}</span></button>`).join('')):`<p class="srv-muted">${isRequests?'현재 미확인 요청이 없습니다.':'해당 업무가 없습니다.'}</p>`}
- ${chosen.length>7?`<p class="jb-report-note">최근 7건만 표시합니다. 다른 신청은 휴무·연장근무에서 확인하세요.</p>`:''}</div>
+ ${chosen.length>7?`<p class="jb-report-note">최근 7건만 표시합니다. 추가 회원가입 요청은 직원·부서 메뉴에서 확인하세요.</p>`:''}</div>
  <div class="jb-report-actions">${['owner','manager'].includes(profile?.app_role)?`<button type="button" class="alt" id="jbAcctHomeRefresh" ${jbAcctBusy?'disabled':''}>가입 요청 새로고침${jbAcctState?' ('+signupRequests.length+')':''}</button>`:''}<button type="button" class="alt" data-jb-report-nav="inbox">🔔 알림 확인</button><button type="button" class="alt" data-jb-report-nav="tasks">내 업무 조회</button></div></section>`;
 }
 
@@ -2666,16 +2666,28 @@ function jbAccountAdminPanel(){
  </section>`;
 }
 async function jbAcctRequest(payload){
+ // Netlify Functions는 file:// HTML 또는 GitHub 원본 미리보기에서는 동작하지 않습니다.
+ if(location.protocol==='file:')throw new Error('컴퓨터에 저장한 HTML에서는 가입 요청을 불러올 수 없습니다. Netlify 배포 사이트(https://)로 접속해 주세요.');
+ if(location.protocol!=='https:'&&location.hostname!=='localhost')
+  throw new Error('회원가입 계정 관리는 HTTPS로 배포한 사이트에서만 사용할 수 있습니다.');
  const {data,error}=await supa.auth.getSession();
  if(error||!data?.session?.access_token)throw new Error('로그인 세션을 확인하세요.');
- const response=await fetch('/.netlify/functions/account-admin',{
-  method:payload?'POST':'GET',cache:'no-store',
-  headers:{'authorization':'Bearer '+data.session.access_token,'content-type':'application/json'},
-  ...(payload?{body:JSON.stringify(payload)}:{})
- });
+ let response;
+ try{
+  response=await fetch('/.netlify/functions/account-admin',{
+   method:payload?'POST':'GET',cache:'no-store',
+   headers:{'authorization':'Bearer '+data.session.access_token,'content-type':'application/json'},
+   ...(payload?{body:JSON.stringify(payload)}:{})
+  });
+ }catch(fetchError){
+  throw new Error('회원가입 관리 서버 연결에 실패했습니다. Netlify 사이트 주소, 인터넷 연결, 서버 함수 배포 상태를 확인하세요. ('+String(fetchError?.message||fetchError)+')');
+ }
  let result={};
  try{result=await response.json()}catch(_){}
- if(!response.ok)throw new Error(result.error||('서버 응답 오류 '+response.status));
+ if(!response.ok){
+  const detail=result.error||(response.status===404?'Netlify 회원가입 관리 서버 함수가 배포되지 않았습니다.':'서버 응답 오류 '+response.status);
+  throw new Error(detail+' (HTTP '+response.status+')');
+ }
  return result;
 }
 async function jbAcctReload(silent=false){
