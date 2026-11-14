@@ -2399,6 +2399,15 @@ async function leaveSubmit(ev){
  if(type==='leave'&&category.startsWith('half_')&&start!==end){alert('반차는 하루만 신청할 수 있습니다.');return;}
  if(type==='overtime'&&(!otStart||!otEnd||otEnd<=otStart||start!==end)){alert('연장근무는 동일 날짜에 시작·종료하며 종료 시간이 시작 시간보다 늦어야 합니다.');return;}
  const managerOwnLeave=profile.app_role==='manager'&&type==='leave';
+ // 기존 변경 승인 RPC는 휴무 구분(연차/반차) 변경을 기록하지 않음.
+ // 일반 직원의 승인된 신청에서 구분이 바뀌면 기존 연차 집계가 틀어질 수 있어 차단.
+ if(leaveApprovedEditing&&profile.app_role==='staff'){
+  const original=records.leaves.find(r=>r.id===leaveEditingId&&r.employee_id===profile.id);
+  if(original&&(type!==original.request_type||(type==='leave'&&category!==(original.leave_category||'general')))){
+   alert('승인된 휴무의 종류(연차·반차·일반휴무·연장근무)는 변경 요청으로 바꿀 수 없습니다. 기존 승인을 취소 요청한 뒤 원하는 종류로 새로 신청해 주세요.');
+   return;
+  }
+ }
  if(profile.app_role==='manager'&&leaveApprovedEditing&&type!=='leave'){
   alert('승인된 본인 휴무는 연장근무로 변경할 수 없습니다.');return;
  }
