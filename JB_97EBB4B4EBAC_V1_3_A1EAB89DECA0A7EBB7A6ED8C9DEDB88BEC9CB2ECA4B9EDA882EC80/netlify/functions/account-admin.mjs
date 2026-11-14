@@ -10,6 +10,7 @@ const fail=(message,status=400)=>send({error:message},status);
 function initServer(){
  const {SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY}=process.env;
  if(!SUPABASE_URL||!SUPABASE_SERVICE_ROLE_KEY)throw new Error('Netlify Auth 서버 설정 누락');
+ if(String(SUPABASE_URL).replace(/\/+$/,'')!=='https://apkrhhdmjxbvwtdktfaq.supabase.co')throw new Error('개발용 계정 함수는 JB-DEV 서버만 허용합니다');
  return createClient(SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,{
   auth:{persistSession:false,autoRefreshToken:false}
  });
