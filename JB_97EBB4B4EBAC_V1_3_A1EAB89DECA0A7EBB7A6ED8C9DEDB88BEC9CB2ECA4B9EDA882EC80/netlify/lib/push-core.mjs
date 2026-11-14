@@ -8,6 +8,7 @@ const PROCESSING_TIMEOUT_MS=90*1000;
 
 export function createPushServer(){
  const {SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,VAPID_PUBLIC_KEY,VAPID_PRIVATE_KEY,VAPID_SUBJECT}=process.env;
+ if(String(SUPABASE_URL||'').replace(/\/+$/,'')!=='https://apkrhhdmjxbvwtdktfaq.supabase.co')throw new Error('개발 푸시 서버가 운영 Supabase를 참조할 수 없습니다');
  if(![SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,VAPID_PUBLIC_KEY,VAPID_PRIVATE_KEY,VAPID_SUBJECT].every(Boolean)){
   throw new Error('Missing server-side Supabase/VAPID configuration');
  }
