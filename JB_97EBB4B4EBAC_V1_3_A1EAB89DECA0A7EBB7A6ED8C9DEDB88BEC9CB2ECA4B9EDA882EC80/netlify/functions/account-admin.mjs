@@ -20,7 +20,7 @@ async function getOperator(db,request){
  const {data,error}=await db.auth.getUser(token);
  if(error||!data?.user?.id)return null;
  const {data:staff,error:profileError}=await db.from('jb_employees')
-  .select('id,app_role,active,auth_user_id').eq('auth_user_id',data.user.id)
+  .select('id,app_role,active,auth_user_id,department_id').eq('auth_user_id',data.user.id)
   .eq('active',true).maybeSingle();
  if(profileError||!staff||!['owner','manager'].includes(staff.app_role))return null;
  return staff;
@@ -46,7 +46,8 @@ async function lookupEmployee(db,userId){
 function targetAllowed(actor,employee){
  return !employee||(
   employee.id!==actor.id&&employee.app_role!=='owner'&&
-  (actor.app_role==='owner'||employee.app_role==='staff')
+  (actor.app_role==='owner'||(employee.app_role==='staff'&&
+   actor.department_id&&employee.department_id===actor.department_id))
  );
 }
 export default async request=>{
@@ -118,7 +119,7 @@ export default async request=>{
    const employeeId=String(body?.employeeId||'');
    if(!uuid(employeeId))return fail('연결할 기존 직원 기록을 선택하세요.');
    const {data:target,error:targetError}=await db.from('jb_employees')
-    .select('id,app_role,active,auth_user_id').eq('id',employeeId).maybeSingle();
+    .select('id,app_role,active,auth_user_id,department_id').eq('id',employeeId).maybeSingle();
    if(targetError)throw targetError;
    if(!target||target.auth_user_id)return fail('직원 기록이 없거나 이미 로그인 계정과 연결되어 있습니다.');
    if(!targetAllowed(actor,target))return fail('해당 직원 기록에 연결할 권한이 없습니다.',403);
