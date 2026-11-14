@@ -2,6 +2,19 @@
 
 > **이 브랜치는 `development-test`이며 시험·수정 중입니다. 운영 사이트 배포용이 아닙니다.**
 
+## 2026-11-14 최신 운영 반영 / 개발 서버 분리 현황
+
+> **이 섹션이 아래 날짜별 과거 메모보다 우선합니다.** 11월 14일 사용자의 운영 반영 지시에 따라 `main`이 갱신되었습니다. 아래의 "main 미변경" 문구는 당시 이력입니다.
+
+- 운영 GitHub `main` 커밋: [`4ef6354`](https://github.com/farm26730-a11y/jb-work-management/commit/4ef635495e65f81e6613224f1848f2efe8fa628a). 연차 자동 산정/수동 차감 HTML 및 회원가입 비활성 직원 연결 차단 반영.
+- **Netlify 운영 Published 상태와 실계정 시험은 미확인.** GitHub main 반영만으로 서비스 게시 완료라고 판단하지 않습니다.
+- 운영 Supabase: `bnonnvgtbukztfhaxgrr` (업무관리앱). 이번 서버 분리 과정에서 운영 DB 데이터/SQL 변경 없음.
+- 개발 Supabase: `apkrhhdmjxbvwtdktfaq` (JB-DEV). **스키마만 복제 완료**: 33개 테이블, 88개 함수, public RLS 정책 82개, 트리거 9개, Storage 버킷 2개. 실제 운영 직원·계정·업무·연차 데이터는 복제하지 않음.
+- JB-DEV에는 부서 이름 5개와 가상 직원 역할 3개(인증 계정 연결 전)만 준비함.
+- 개발 Netlify 프로젝트는 아직 별도로 생성되지 않았습니다. Site 생성 후 `development-test` 브랜치 및 JB-DEV 프로젝트 전용 환경변수를 연결해야 합니다.
+- 현재 `development-test` Netlify 함수 및 프런트엔드에는 **운영 Supabase 오연결 방지 가드**가 추가됨. 이후 main 배포 때 개발 전용 가드를 복사하면 운영 로그인이 차단될 수 있으니 기능별 차이를 검토하세요.
+- [상세 운영 반영 / 개발서버 인수인계](development/2026-11-14/JB_V1_3_운영반영_독립개발서버_20261114.md)
+
 ## 저장소 구분
 
 | 구분 | GitHub 브랜치 | 용도 | 배포 |
@@ -68,7 +81,7 @@ SQL 파일은 `development/2026-11-08/`에 있습니다.
 - **development-test만 수정**: 비활성 직원 기록을 가입 계정 연결 후보에서 제외하고, 서버가 연결 시 active=true를 재확인하도록 수정(커밋 `1b855a5`).
 - 가짜 Supabase 응답으로 함수 동작 4개 시험 통과. 실제 HTTPS 및 실계정 검증 미완료. 운영 `main`과 Supabase 데이터는 변경하지 않음.
 - 상세 인수인계: [2026-11-14 회원가입 연결 개발 이어가기](development/2026-11-14/JB_V1_3_회원가입연결_개발이어가기_인수인계_20261114.md).
-- **주의**: `main`에 누락된 공개 설정 함수 `public-config.mjs`는 신규 기기 최초 접속 시 확인 필요. 전체 브랜치 강제 병합 금지.
+- **확인 결과**: `public-config.mjs`는 11월 14일 main과 development-test에 같은 내용으로 존재했습니다. Netlify Published 상태는 별도 확인 필요. 전체 브랜치 강제 병합 금지.
 
 ## 2026-11-14 후속: 연차·월차 자동 계산 및 관리자 수동 차감
 
