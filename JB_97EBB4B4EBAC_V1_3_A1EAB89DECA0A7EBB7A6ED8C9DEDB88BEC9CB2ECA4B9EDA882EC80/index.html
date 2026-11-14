@@ -2228,7 +2228,7 @@ function jbAnnualLeavePanel(){
  if(chosen.status==='estimated_attendance')output+='<p class="srv-note">자동 계산된 잠정 일수입니다. 월 개근과 직전 1년 출근율(80% 이상), 법정 출근 간주 여부를 확인할 근태 자료가 부족하여 법정 확정 잔액으로 보지 않습니다. 발생분은 직원별 관리자 승인 없이 계산됩니다.</p>';
  if(chosen.status==='needs_carryover_review')output+='<p class="srv-note">이전 연차 주기 발생분의 사용·이월 여부를 확인해야 합니다. 잔여 연차는 확정하지 않습니다.</p>';
  if(chosen.unverified_count>0)output+='<p class="srv-error">승인된 연차 중 '+chosen.unverified_count+'건은 연속 날짜 또는 연차주기 경계가 포함되어 차감일수 검토가 필요합니다. 현재 잔여 연차는 확정할 수 없습니다.</p>';
- if(chosen.status==='ok'&&chosen.available_days!==null&&Number(chosen.available_days)<0)output+='<p class="srv-error">자동 산정 일수보다 사용·차감이 많습니다. 과거 사용 내역과 조정 사유를 확인해 주세요.</p>';
+ if(chosen.available_days!==null&&chosen.available_days!==undefined&&Number(chosen.available_days)<0)output+='<p class="srv-error">자동 산정 일수보다 사용·차감이 많습니다. 과거 사용 내역과 조정 사유를 확인해 주세요.</p>';
  if(chosen.hire_date&&Number(chosen.granted_days)===0)output+='<p class="srv-muted">입사일 기준으로 첫 월 발생일 전이거나 계산 대상 기간이 아닙니다.</p>';
  const mayEdit=admin&&(profile.app_role==='owner'||(chosen.role==='staff'&&chosen.employee_id!==profile.id));
  if(mayEdit){
@@ -2479,7 +2479,7 @@ async function leaveReview(id,decision){
  // 개발본: 직원 연차·반차 승인 전에 서버의 최신 사용/발생 장부를 다시 조회.
  // 기존 운영용 jb_review_leave_companywide는 변경하지 않음.
  if(isLeave&&decision==='approved'){
-  const checked=await supa.rpc('jb_annual_leave_check_request_v13',{p_request_id:id});
+  const checked=await supa.rpc('jb_annual_leave_auto_check_request_v13',{p_request_id:id});
   if(checked.error){
    alert('연차 사전 확인을 완료하지 못했습니다. 승인하지 않았습니다: '+String(checked.error.message||checked.error));return;
   }
@@ -2493,12 +2493,13 @@ async function leaveReview(id,decision){
     alert('실제 소정근로일수는 0.5일 단위, 0보다 크고 31일 이하로 입력하세요.');return;
    }
   }
-  if(reviewStatus!=='ready'&&reviewStatus!=='not_annual'){
+  if(reviewStatus!=='ready'&&reviewStatus!=='ready_auto_provisional'&&reviewStatus!=='not_annual'){
    const descriptions={
     hire_date_missing:'입사일이 등록되지 않았습니다.',
     balance_unconfirmed:'근태·연차 발생이나 이전 사용 내역의 확인이 필요합니다.',
     multi_day_review:'여러 날 연차의 실제 차감일수를 확인해야 합니다.',
     insufficient:'확정된 장부 잔여일수보다 신청일수가 많습니다.',
+    insufficient_auto:'입사일 기준 자동 산정 잔여일수보다 신청일수가 많습니다.',
     outside_cycle:'휴가 예정일이 현재 연차 산정기간 밖입니다.',
     future_request_review:'미래 휴가의 사용 가능 일수는 예정일 기준 재확인이 필요합니다.'
    };
@@ -2508,10 +2509,10 @@ async function leaveReview(id,decision){
    if(reviewNote.length<8){alert('승인 확인 사유를 8자 이상 입력해 주세요.');return;}
   }
  }
- if(!confirm((decision==='approved'?'승인':'반려')+' 처리할까요?'+(isLeave&&decision==='approved'&&reviewStatus!=='ready'&&reviewStatus!=='not_annual'?'\n연차 확인 사항과 근거가 별도로 기록됩니다.':'')+'\n처리 결과는 서버에 저장됩니다.'))return;
+ if(!confirm((decision==='approved'?'승인':'반려')+' 처리할까요?'+(isLeave&&decision==='approved'&&reviewStatus!=='ready'&&reviewStatus!=='ready_auto_provisional'&&reviewStatus!=='not_annual'?'\n연차 확인 사항과 근거가 별도로 기록됩니다.':'')+'\n처리 결과는 서버에 저장됩니다.'))return;
  leaveSaving=true;leaveFeedback='';dashboard();
  try{
-  const rpc=isLeave?'jb_annual_leave_review_request_v13':'jb_review_leave_companywide';
+  const rpc=isLeave?'jb_annual_leave_auto_review_request_v13':'jb_review_leave_companywide';
   const args=isLeave?{p_request_id:id,p_decision:decision,p_approval_days:actualDays,p_review_note:reviewNote}:{p_request_id:id,p_decision:decision};
   const {error}=await supa.rpc(rpc,args);
   if(error)throw error;
