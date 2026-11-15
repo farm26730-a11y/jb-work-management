@@ -3128,7 +3128,7 @@ async function jbAddExistingCommentPhotos(ev){
   await jbUploadTaskAttachments(taskId,files,commentId);
   taskPhotoTask='';await loadTaskPhoto(taskId);
  }catch(error){alert('댓글 사진 추가 실패: '+String(error?.message||error));}
- finally{commentPhotoAttachBusy=false;if(button?.isConnected)button.disabled=false;}
+ finally{commentPhotoAttachBusy=false;if(button?.isConnected)button.disabled=false;if((expandedServerTask===taskId&&view==='tasks')||(homeSelectedTask===taskId&&view==='home'))dashboard();}
 }
 async function submitServerComment(ev){
  ev.preventDefault();if(commentSubmitting||!profile)return;
