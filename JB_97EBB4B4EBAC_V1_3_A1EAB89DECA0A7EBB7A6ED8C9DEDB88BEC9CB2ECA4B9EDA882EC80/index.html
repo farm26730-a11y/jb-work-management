@@ -1103,7 +1103,7 @@ function rosterRememberExpandedFolds(){
 }
 function rosterFoldOpenAttribute(key){return rosterExpandedFolds.has(key)?' open':'';}
 let expandedServerTask=null,commentSubmitting=false;
-let repeatTemplates=[],repeatTemplatesLoaded=false,repeatMessage="";
+let repeatTemplates=[],repeatTemplatesLoaded=false,repeatMessage="",repeatTemplatesOwnerId='',repeatTemplatesRequestSeq=0;
 let eventMonth=localDay().slice(0,7),eventMessage="",eventSaving=false,eventEditId="";
 let homeSelectedEmployee=null,homeSelectedTask=null;
 const TASK_PHOTO_BUCKET='jb-task-images';
@@ -1233,7 +1233,7 @@ async function loadProfile(){
  let {data:{user},error:authError}=await supa.auth.getUser();if(authError||!user){if(authError){login('연결 오류로 로그인 상태를 확인하지 못했습니다. 인터넷 연결을 확인한 후 다시 시도해 주세요.');return;}login('인증 세션이 없습니다. 로그인하세요.');return;}
  const {data,error}=await supa.from('jb_employees').select('id,name,position,app_role,department_id,active').eq('auth_user_id',user.id).eq('active',true).maybeSingle();
  if(error){login('직원 정보 조회에 실패했습니다. 네트워크 및 접근 권한을 확인하세요. 로그인 세션은 보존됩니다.');return;}if(!data){profile=null;login('이메일 계정 인증은 완료되었지만 아직 직원관리에서 계정 연결·활성화가 필요합니다. 대표님 또는 부서장에게 요청하세요.');return;}
- profile=data;jbAcctOpen=false;jbAcctState=null;jbAcctMsg='';repeatTemplates=[];repeatTemplatesLoaded=false;await loadData();await loadRepeatTemplates();if(['owner','manager'].includes(profile?.app_role))void jbAcctReload(true);
+ profile=data;jbAcctOpen=false;jbAcctState=null;jbAcctMsg='';repeatTemplates=[];repeatTemplatesLoaded=false;repeatTemplatesOwnerId='';repeatTemplatesRequestSeq++;await loadData();await loadRepeatTemplates();if(['owner','manager'].includes(profile?.app_role))void jbAcctReload(true);
 }
 // V6.6.8.1: 로그인 후 변경된 재직상태/역할을 서버에서 재확인합니다.
 // 이 클라이언트 검사는 사용자 화면을 잠그기 위한 보조 장치입니다.
@@ -1367,20 +1367,36 @@ async function loadData(){
 function canCreate(){return ['owner','manager'].includes(profile?.app_role)}
 function canRegisterTask(){return ['owner','manager','staff'].includes(profile?.app_role)&&profile?.active!==false}
 async function loadRepeatTemplates(){
- if(!profile)return;
- const {data,error}=await supa.from('jb_task_templates').select('id,title,description,created_at').eq('owner_id',profile.id).order('created_at',{ascending:false}).limit(100);
- if(error){repeatMessage='반복 업무 불러오기 실패: '+error.message;repeatTemplatesLoaded=false;}else{repeatTemplates=data||[];repeatTemplatesLoaded=true;repeatMessage='';}
+ const ownerId=profile?.id||'';
+ const requestSeq=++repeatTemplatesRequestSeq;
+ repeatTemplates=[];repeatTemplatesLoaded=false;repeatTemplatesOwnerId='';
+ if(!ownerId||!supa)return;
+ const {data:authData,error:authError}=await supa.auth.getUser();
+ if(requestSeq!==repeatTemplatesRequestSeq||profile?.id!==ownerId)return;
+ if(authError||!authData?.user?.id){repeatMessage='로그인 계정을 확인하지 못했습니다.';if(view==='tasks')dashboard();return;}
+ const {data:me,error:meError}=await supa.from('jb_employees').select('id').eq('auth_user_id',authData.user.id).eq('active',true).maybeSingle();
+ if(requestSeq!==repeatTemplatesRequestSeq||profile?.id!==ownerId)return;
+ if(meError||me?.id!==ownerId){repeatMessage='현재 계정의 반복 업무를 불러올 수 없습니다.';if(view==='tasks')dashboard();return;}
+ const {data,error}=await supa.from('jb_task_templates').select('id,owner_id,title,description,created_at').eq('owner_id',ownerId).order('created_at',{ascending:false}).limit(100);
+ if(requestSeq!==repeatTemplatesRequestSeq||profile?.id!==ownerId)return;
+ if(error){repeatMessage='반복 업무 불러오기 실패: '+error.message;repeatTemplatesLoaded=false;}
+ else{
+  repeatTemplates=(data||[]).filter(t=>t.owner_id===ownerId);
+  repeatTemplatesLoaded=true;repeatTemplatesOwnerId=ownerId;repeatMessage='';
+  if((data||[]).length!==repeatTemplates.length){repeatMessage='반복 업무 조회 결과를 다시 확인해 주세요.';}
+ }
  if(view==='tasks')dashboard();
 }
 async function saveRepeatTemplate(){
+ const ownerId=profile?.id||'';if(!ownerId)return;
  const title=shell.querySelector('#srvTaskTitle')?.value.trim()||'',description=shell.querySelector('#srvTaskDescription')?.value.trim()||'';
  const msg=shell.querySelector('#srvTaskTemplateMsg');if(!title){if(msg)msg.textContent='먼저 업무 제목을 입력하세요.';return;}
  const b=shell.querySelector('#srvTemplateSave');if(b)b.disabled=true;
- try{const {error}=await supa.from('jb_task_templates').insert({owner_id:profile.id,title,description});if(error)throw error;await loadRepeatTemplates();const t=shell.querySelector('#srvTaskTitle'),d=shell.querySelector('#srvTaskDescription');if(t)t.value=title;if(d)d.value=description;const m=shell.querySelector('#srvTaskTemplateMsg');if(m)m.textContent='반복 업무 양식을 저장했습니다.';}
+ try{const {error}=await supa.from('jb_task_templates').insert({owner_id:ownerId,title,description});if(error)throw error;if(profile?.id!==ownerId)return;await loadRepeatTemplates();const t=shell.querySelector('#srvTaskTitle'),d=shell.querySelector('#srvTaskDescription');if(t)t.value=title;if(d)d.value=description;const m=shell.querySelector('#srvTaskTemplateMsg');if(m)m.textContent='반복 업무 양식을 저장했습니다.';}
  catch(e){if(msg)msg.textContent='반복 업무 저장 실패: '+String(e.message||e)}finally{if(b)b.disabled=false;}
 }
 async function deleteRepeatTemplate(){
- const id=shell.querySelector('#srvTaskTemplateSelect')?.value;if(!id)return;
+ const id=shell.querySelector('#srvTaskTemplateSelect')?.value;if(!id||repeatTemplatesOwnerId!==profile?.id||!repeatTemplates.some(t=>t.id===id&&t.owner_id===profile.id))return;
  if(!confirm('선택한 반복 업무 양식만 삭제할까요? 이미 등록한 업무는 삭제되지 않습니다.'))return;
  const {error}=await supa.from('jb_task_templates').delete().eq('id',id).eq('owner_id',profile.id);
  if(error){const m=shell.querySelector('#srvTaskTemplateMsg');if(m)m.textContent='삭제 실패: '+error.message;return;}
@@ -1388,7 +1404,7 @@ async function deleteRepeatTemplate(){
 }
 function applyRepeatTemplate(){
  const id=shell.querySelector('#srvTaskTemplateSelect')?.value;
- const t=repeatTemplates.find(t=>t.id===id);if(!t)return;
+ const t=repeatTemplatesOwnerId===profile?.id?repeatTemplates.find(t=>t.id===id&&t.owner_id===profile.id):null;if(!t)return;
  shell.querySelector('#srvTaskTitle').value=t.title;
  shell.querySelector('#srvTaskDescription').value=t.description||'';
  const msg=shell.querySelector('#srvTaskTemplateMsg');if(msg)msg.textContent='제목·설명을 적용했습니다. 담당자와 날짜를 확인하고 업무를 등록하세요.';
@@ -1398,7 +1414,7 @@ function taskEditor(){
  const own=profile.app_role==='staff';
  const deptOpts=records.departments.filter(d=>!own||d.id===profile.department_id);
  const personOpts=jbStaffDisplaySorted(records.employees.filter(e=>!own||e.department_id===profile.department_id));
- return `<details class="srv-editor" id="srvTaskEditor" open><summary style="font-size:16px;padding:10px;color:#106444">＋ 새 업무 등록 (서버 저장) · 펼치기/접기</summary><div style="padding:12px;border:1px solid #cfddd4;border-radius:10px;margin:12px 0;background:#f7faf7"><b>🔁 반복 업무 간편 등록</b><p class="srv-muted" style="margin:5px 0">저장된 양식을 선택하면 제목과 설명이 자동 입력됩니다. 양식은 내 계정에 저장됩니다.</p><select id="srvTaskTemplateSelect" style="width:100%;padding:10px;margin:7px 0"><option value="">반복 업무 선택</option>${repeatTemplates.map(t=>`<option value="${safe(t.id)}">${safe(t.title)}</option>`).join('')}</select><div class="srv-row"><button type="button" id="srvTemplateApply" class="alt">선택 양식 적용</button><button type="button" id="srvTemplateDelete" class="alt">선택 양식 삭제</button><button type="button" id="srvTemplateReload" class="alt">목록 새로고침</button></div><p class="srv-muted">${safe(repeatMessage||(!repeatTemplatesLoaded?'처음 이용할 때 목록을 불러옵니다.':''))}</p></div><form id="srvTaskForm" style="margin-top:12px"><label>업무 제목 *</label><input id="srvTaskTitle" maxlength="120" required placeholder="예: 농원 관수 점검"><label>업무 설명</label><textarea id="srvTaskDescription" placeholder="해야 할 작업을 간략히 작성" style="width:100%;min-height:75px;padding:10px;border:1px solid #cadbd1;border-radius:8px"></textarea><label>부서 *</label><select id="srvTaskDepartment" required style="width:100%;padding:10px;margin-bottom:10px">${deptOpts.map(d=>`<option value="${safe(d.id)}">${safe(d.name)}</option>`).join('')}</select><label>담당 직원 *</label><select id="srvTaskAssignee" required style="width:100%;padding:10px;margin-bottom:10px"></select><label>완료 예정일 (선택)</label><input id="srvTaskDue" type="date"><label>업무 등록 후 보고 대상</label><select id="srvTaskReportTarget"><option value="none">별도 보고 없음</option><option value="manager">관리자에게 확인 요청</option><option value="owner">대표님께 바로 보고</option></select><label style="display:block;margin-top:10px">업무 지시 사진 (선택 · 최대 5장)</label><input id="srvTaskCreatePhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple><button type="button" class="alt" onclick="jbOpenCamera(this, 'srvTaskCreatePhotos')">📷 사진 바로 찍기</button><p class="srv-muted">등록과 동시에 업무 사진에 첨부됩니다. JPG·PNG·WEBP, 장당 원본 25MB 이하.</p><div class="srv-row" style="margin:10px 0"><button type="button" class="alt" id="srvTemplateSave">현재 제목·설명을 반복 양식으로 저장</button></div><p class="srv-error" id="srvTaskTemplateMsg"></p><button type="submit" id="srvTaskSave">업무 등록하기</button><p class="srv-error" id="srvTaskMsg"></p></form></details>`;
+ return `<details class="srv-editor" id="srvTaskEditor" open><summary style="font-size:16px;padding:10px;color:#106444">＋ 새 업무 등록 (서버 저장) · 펼치기/접기</summary><div style="padding:12px;border:1px solid #cfddd4;border-radius:10px;margin:12px 0;background:#f7faf7"><b>🔁 반복 업무 간편 등록</b><p class="srv-muted" style="margin:5px 0">저장된 양식을 선택하면 제목과 설명이 자동 입력됩니다. 양식은 내 계정에 저장됩니다.</p><select id="srvTaskTemplateSelect" style="width:100%;padding:10px;margin:7px 0"><option value="">반복 업무 선택</option>${repeatTemplatesOwnerId===profile.id?repeatTemplates.filter(t=>t.owner_id===profile.id).map(t=>`<option value="${safe(t.id)}">${safe(t.title)}</option>`).join(''):''}</select><div class="srv-row"><button type="button" id="srvTemplateApply" class="alt">선택 양식 적용</button><button type="button" id="srvTemplateDelete" class="alt">선택 양식 삭제</button><button type="button" id="srvTemplateReload" class="alt">목록 새로고침</button></div><p class="srv-muted">${safe(repeatMessage||(!repeatTemplatesLoaded?'처음 이용할 때 목록을 불러옵니다.':''))}</p></div><form id="srvTaskForm" style="margin-top:12px"><label>업무 제목 *</label><input id="srvTaskTitle" maxlength="120" required placeholder="예: 농원 관수 점검"><label>업무 설명</label><textarea id="srvTaskDescription" placeholder="해야 할 작업을 간략히 작성" style="width:100%;min-height:75px;padding:10px;border:1px solid #cadbd1;border-radius:8px"></textarea><label>부서 *</label><select id="srvTaskDepartment" required style="width:100%;padding:10px;margin-bottom:10px">${deptOpts.map(d=>`<option value="${safe(d.id)}">${safe(d.name)}</option>`).join('')}</select><label>담당 직원 *</label><select id="srvTaskAssignee" required style="width:100%;padding:10px;margin-bottom:10px"></select><label>완료 예정일 (선택)</label><input id="srvTaskDue" type="date"><label>업무 등록 후 보고 대상</label><select id="srvTaskReportTarget"><option value="none">별도 보고 없음</option><option value="manager">관리자에게 확인 요청</option><option value="owner">대표님께 바로 보고</option></select><label style="display:block;margin-top:10px">업무 지시 사진 (선택 · 최대 5장)</label><input id="srvTaskCreatePhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple><button type="button" class="alt" onclick="jbOpenCamera(this, 'srvTaskCreatePhotos')">📷 사진 바로 찍기</button><p class="srv-muted">등록과 동시에 업무 사진에 첨부됩니다. JPG·PNG·WEBP, 장당 원본 25MB 이하.</p><div class="srv-row" style="margin:10px 0"><button type="button" class="alt" id="srvTemplateSave">현재 제목·설명을 반복 양식으로 저장</button></div><p class="srv-error" id="srvTaskTemplateMsg"></p><button type="submit" id="srvTaskSave">업무 등록하기</button><p class="srv-error" id="srvTaskMsg"></p></form></details>`;
 }
 function updateAssignees(){
  const select=shell.querySelector('#srvTaskAssignee'),dept=shell.querySelector('#srvTaskDepartment');if(!select||!dept)return;
@@ -3899,7 +3915,7 @@ function dashboard(){
  const homeCreate=shell.querySelector('#srvHomeCreateTask');if(homeCreate)homeCreate.onclick=()=>{view='tasks';dashboard();const editor=shell.querySelector('#srvTaskEditor');if(editor){editor.open=true;editor.scrollIntoView({behavior:'smooth',block:'start'});editor.querySelector('#srvTaskTitle')?.focus();}};
  shell.querySelector('#srvPasswordToggle').onclick=()=>{const form=shell.querySelector('#srvPasswordForm');form.hidden=!form.hidden;shell.querySelector('#srvPasswordToggle').setAttribute('aria-expanded',String(!form.hidden));if(!form.hidden)form.querySelector('#srvNewPassword').focus()};
  shell.querySelector('#srvPasswordForm').onsubmit=async(e)=>{e.preventDefault();const form=e.currentTarget;const m=form.querySelector('#srvPasswordMessage');const pw=form.querySelector('#srvNewPassword').value;const confirmPw=form.querySelector('#srvConfirmPassword').value;if(pw.length<8){m.textContent='새 비밀번호를 8자 이상 입력하세요.';return}if(pw!==confirmPw){m.textContent='비밀번호 확인값이 다릅니다.';return}const btn=form.querySelector('button[type=submit]');btn.disabled=true;m.textContent='저장 중...';try{const {error}=await supa.auth.updateUser({password:pw});if(error)throw error;form.reset();m.textContent='비밀번호 변경이 완료되었습니다.';}catch(err){m.textContent='변경 실패: '+String(err.message||err)}finally{btn.disabled=false}};
- shell.querySelector('#srvLogout').onclick=async()=>{if(view==='attendance'&&rosterCanEdit()){rosterReadDraft();if(rosterDirty&&!confirm('저장하지 않은 인원배치 초안이 있습니다. 로그아웃할까요?'))return;}await supa.auth.signOut();profile=null;login('로그아웃했습니다.')};
+ shell.querySelector('#srvLogout').onclick=async()=>{if(view==='attendance'&&rosterCanEdit()){rosterReadDraft();if(rosterDirty&&!confirm('저장하지 않은 인원배치 초안이 있습니다. 로그아웃할까요?'))return;}await supa.auth.signOut();profile=null;repeatTemplates=[];repeatTemplatesLoaded=false;repeatTemplatesOwnerId='';repeatTemplatesRequestSeq++;login('로그아웃했습니다.')};
  shell.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{const next=b.getAttribute('data-view');if(view==='attendance'&&next!=='attendance'&&rosterCanEdit()){rosterReadDraft();if(rosterDirty&&!confirm('저장하지 않은 인원배치 초안을 버리고 이동할까요?'))return;}if(next==='attendance'){rosterOpen(rosterDate||localDay());return;}if(next==='meals'){void jbMealOpen();return;}mobileMoreOpen=false;view=next;dashboard();if(next==='archive')loadArchive()});
  // 홈 상세 댓글 이벤트를 공통 대시보드 영역에 연결
  shell.querySelectorAll('.srv-home-detail-comment-form').forEach(f=>f.onsubmit=submitServerComment);
