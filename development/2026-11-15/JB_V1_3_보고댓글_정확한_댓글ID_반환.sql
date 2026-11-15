@@ -129,7 +129,7 @@ BEGIN
     PERFORM pg_catalog.set_config('jb.last_submitted_comment_id', v_comment_id::text, true);
     RETURN v_request_id;
 END;
-$function$
+$function$;
 
 CREATE OR REPLACE FUNCTION public.jb_submit_task_report_comment_id_v13(
   p_task_id uuid,
