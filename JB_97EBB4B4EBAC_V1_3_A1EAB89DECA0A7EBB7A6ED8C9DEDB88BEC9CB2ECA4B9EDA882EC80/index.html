@@ -696,22 +696,20 @@ header .rolebar button.active{background:#067d70!important;color:#fff!important}
 @media(max-width:760px){#jbServerShell .jb-task-detail-columns{grid-template-columns:minmax(0,1fr);gap:8px}#jbServerShell .jb-task-edit-top{flex:0 1 auto;max-width:55%}#jbServerShell .jb-task-detail-timing{padding:8px 9px}#jbServerShell .jb-task-timing-history{max-height:82px}}
 @media(max-width:380px){#jbServerShell .jb-task-detail-head{gap:8px}#jbServerShell .jb-task-edit-top>summary{font-size:11px;padding:7px 8px}#jbServerShell .jb-task-timing-dates{font-size:10px}}
 
-/* Task details: image follows the description without a separating heading. */
+/* Task description and photos remain together; use the original compact status dropdown. */
 #jbServerShell .jb-task-detail-primary .jb-task-detail-description{margin-bottom:7px!important}
-#jbServerShell .jb-task-detail-primary .jb-task-state-panel{margin-top:10px}
-#jbServerShell .jb-task-state-label{font-size:12px;font-weight:750;color:#23594a;margin:0 0 7px}
-#jbServerShell .jb-task-state-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;min-width:0}
-#jbServerShell .jb-task-state-actions button.jb-task-status-action{width:100%;min-width:0;min-height:42px;margin:0;padding:9px 5px!important;border:1px solid #bfd8cf!important;border-radius:9px;background:#f4faf7!important;color:#245e50!important;box-shadow:none!important;text-align:center;font-weight:750;font-size:13px;white-space:nowrap;cursor:pointer}
-#jbServerShell .jb-task-state-actions button.jb-task-status-action:hover:not(:disabled){background:#e3f2eb!important}
-#jbServerShell .jb-task-state-actions button.jb-task-status-hold:not(.is-current){background:#fbf6ec!important;border-color:#e5d8be!important;color:#745c32!important}
-#jbServerShell .jb-task-state-actions button.jb-task-status-in_progress:not(.is-current){background:#e9f6f3!important;border-color:#a9d7cc!important;color:#146b60!important}
-#jbServerShell .jb-task-state-actions button.jb-task-status-completed:not(.is-current){background:#edf4f0!important;border-color:#bbd5c5!important;color:#255e46!important}
-#jbServerShell .jb-task-state-actions button.jb-task-status-action.is-current{background:#087e74!important;border-color:#087e74!important;color:#fff!important;box-shadow:inset 0 0 0 1px #087e74!important;cursor:default}
-#jbServerShell .jb-task-state-actions button.jb-task-status-action:focus-visible{outline:2px solid #05695e;outline-offset:2px}
-#jbServerShell .jb-task-state-actions button.jb-task-status-action:disabled:not(.is-current){opacity:.55;cursor:wait}
+#jbServerShell .jb-task-detail-primary .jb-task-state-panel{margin-top:10px;max-width:265px}
+#jbServerShell .jb-task-state-label{display:block;font-size:12px;font-weight:750;color:#23594a;margin:0 0 6px}
+#jbServerShell .jb-task-status-select{display:block;width:100%;min-height:40px;margin:0;padding:7px 10px;border:1px solid #b7d7cc;border-radius:9px;background:#f3faf7;color:#194e42;font-size:13px;font-weight:700;cursor:pointer}
+#jbServerShell .jb-task-status-select:focus-visible{outline:2px solid #087e74;outline-offset:2px}
 #jbServerShell .jb-task-state-readonly{font-size:12px;margin-top:7px}
-@media(max-width:450px){#jbServerShell .jb-task-state-actions{gap:5px}#jbServerShell .jb-task-state-actions button.jb-task-status-action{min-height:40px;padding:7px 2px!important;font-size:12px}}
-@media(max-width:325px){#jbServerShell .jb-task-state-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
+#jbServerShell .jb-archive-details .jb-task-detail-head{margin-bottom:10px}
+#jbServerShell .jb-archive-details .jb-task-detail-heading .jb-task-issuer{margin-top:5px}
+#jbServerShell .jb-archive-details .jb-task-detail-primary p{margin:6px 0}
+#jbServerShell .jb-archive-details .jb-task-timing-history{max-height:108px;overflow:auto}
+#jbServerShell .jb-archive-details .jb-task-timing-history-row{padding:4px 0}
+#jbServerShell .jb-archive-details .jb-archive-comments{margin-top:14px}
+@media(max-width:760px){#jbServerShell .jb-archive-details .jb-task-timing-history{max-height:82px}}
 </style><link rel="icon" type="image/svg+xml" href="./jb-work-icon.svg"><link rel="manifest" href="./manifest.webmanifest?v=20261108-jb-icons-layout2"><meta name="theme-color" content="#087f70"><meta name="apple-mobile-web-app-capable" content="yes"><style id="jb-push-style">.jb-push-panel{background:#f0f9f6;border:1px solid #b8ddd3;padding:14px;border-radius:13px;margin:12px 0}.jb-push-panel input{display:block;max-width:100%;width:100%;margin:6px 0 12px;font-size:13px}.jb-push-panel button{margin:5px 5px 5px 0}@media(max-width:650px){.jb-push-panel .srv-row{flex-wrap:wrap}.jb-push-panel button{width:100%}}</style><style id="jb-leave-range-style">.jb-leave-range{align-items:center;gap:8px;flex-wrap:wrap;margin:9px 0}.jb-leave-range[hidden]{display:none!important}.jb-leave-range label{width:auto;margin:0;font-size:13px}.jb-leave-range input{max-width:175px;min-width:130px}.jb-leave-date-toolbar .srv-row{flex-wrap:wrap}@media(max-width:600px){.jb-leave-range input{flex:1 1 120px;max-width:100%}}</style><style>
 #jbMealV14{--mg:#087c70;--mb:#d9e8e2}
 #jbMealV14 .meal-mode{display:flex;gap:7px;margin:10px 0 16px}
@@ -1606,7 +1604,7 @@ async function changeTaskStatus(id,value){
   dashboard();return;
  }
  taskStatusSaving=true;
- shell.querySelectorAll('.srv-status, .srv-home-status, .jb-report-status, .jb-task-status-action').forEach(el=>el.disabled=true);
+ shell.querySelectorAll('.srv-status, .srv-home-status, .jb-report-status, .jb-task-status-select').forEach(el=>el.disabled=true);
  try {
    // 서버 RPC가 동일 담당자의 기존 진행중 업무를 보류로 바꾼 뒤 대상 업무를 진행한다.
    const {error}=await supa.rpc('jb_set_task_status_exclusive',{p_task_id:id,p_new_status:value});
@@ -1617,7 +1615,7 @@ async function changeTaskStatus(id,value){
    try{await loadData()}catch(_){}
  }finally{
    taskStatusSaving=false;
-   shell.querySelectorAll('.srv-status, .srv-home-status, .jb-report-status, .jb-task-status-action').forEach(el=>{if(!el.classList.contains('jb-task-status-action')||el.getAttribute('aria-pressed')!=='true')el.disabled=false;});
+   shell.querySelectorAll('.srv-status, .srv-home-status, .jb-report-status, .jb-task-status-select').forEach(el=>el.disabled=false);
  }
 }
 function localDay(offset=0){
@@ -3277,7 +3275,7 @@ function serverTaskDetails(t,readonly=false){
  const taskEditControls=jbMayManageTask(t)?`<details class="srv-task-edit jb-task-edit-top"><summary>✎ 업무 내용 수정 · 삭제</summary><form class="srv-task-edit-form" data-task-id="${safe(t.id)}" style="margin-top:10px"><label>업무 제목<input name="title" required maxlength="120" value="${safe(t.title||'')}" style="width:100%"></label><label>업무 설명<textarea name="description" style="width:100%;min-height:75px">${safe(t.description||'')}</textarea></label><label>완료 예정일<input type="date" name="due" value="${safe(t.due_date||'')}"></label><div class="srv-row" style="margin-top:10px">${(t.assignee_id===profile.id||t.created_by===profile.id)&&profile.app_role!=='owner'?`<label style="display:flex;align-items:center;gap:7px"><input type="checkbox" name="request_review" style="width:auto"> 수정 내용을 상급자에게 확인 요청</label><label style="display:flex;align-items:center;gap:7px"><input type="checkbox" name="request_owner" style="width:auto"> 수정 내용을 대표님께 직접 보고</label>`:''}<button type="submit">수정 저장</button>${jbMayDeleteTask(t)?`<button type="button" class="alt srv-task-delete" data-id="${safe(t.id)}">삭제</button>`:''}</div><p class="srv-error srv-task-edit-error" role="alert"></p><p class="srv-muted">업무 담당자·부서·진행 상태와 누적 시간은 여기서 변경하지 않습니다. 삭제는 미착수·댓글 없음·사진 없음 조건에서만 허용합니다.</p></form></details>`:'';
  const timeHistory=(records.taskHistory||[]).filter(h=>h.task_id===t.id&&h.changed_at).slice().sort((a,b)=>new Date(a.changed_at)-new Date(b.changed_at));
  const taskWhen=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'-';
- const homeStatusControl=canChangeTaskHere?`<div class="jb-task-state-panel" aria-label="업무 상태 변경"><div class="jb-task-state-label">업무 상태</div><div class="jb-task-state-actions" role="group" aria-label="업무 상태 선택">${[['planned','예정'],['hold','보류'],['in_progress','진행중'],['completed','완료']].map(([value,label])=>`<button type="button" class="alt jb-task-status-action jb-task-status-${value} ${t.status===value?'is-current':''}" data-task="${safe(t.id)}" data-status="${value}" aria-pressed="${t.status===value?'true':'false'}" ${taskStatusSaving||t.status===value?'disabled':''}>${label}</button>`).join('')}</div></div>`:'<div class="srv-muted jb-task-state-readonly">완료된 업무는 상태를 변경할 수 없습니다.</div>';
+ const homeStatusControl=canChangeTaskHere?`<div class="jb-task-state-panel"><label class="jb-task-state-label" for="srvDetailStatus_${safe(t.id)}">업무 상태</label><select id="srvDetailStatus_${safe(t.id)}" class="jb-task-status-select" data-task="${safe(t.id)}" aria-label="업무 상태 변경" ${taskStatusSaving?'disabled':''}>${[['planned','예정'],['hold','보류'],['in_progress','진행중'],['completed','완료']].map(([value,label])=>`<option value="${value}" ${t.status===value?'selected':''}>${label}</option>`).join('')}</select></div>`:'<div class="srv-muted jb-task-state-readonly">완료된 업무는 상태를 변경할 수 없습니다.</div>';
  return `<div class="srv-note jb-task-details-card" style="margin:12px 0;background:#f3f8f5">
  <div class="jb-task-detail-head"><div class="jb-task-detail-heading"><b>업무 상세</b><div class="srv-muted jb-task-issuer">지시자: ${safe(jbTaskIssuerName(t))}</div></div>${taskEditControls}</div>
  <div class="jb-task-detail-columns">
@@ -3540,19 +3538,25 @@ function jbArchiveDetails(t){
   if(state==='planned')planned+=at-from;if(state==='in_progress')running+=at-from;if(state==='hold')holding+=at-from;state=h.new_status||state;from=at;}
  const completeAt=Date.parse(a.completed_at||'');if(Number.isFinite(from)&&Number.isFinite(completeAt)&&completeAt>from){if(state==='planned')planned+=completeAt-from;if(state==='in_progress')running+=completeAt-from;if(state==='hold')holding+=completeAt-from;}
  const when=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'-';
- return `<div class="srv-note jb-archive-details" style="margin-top:12px;background:#f3f8f5"><h4 style="margin:0 0 10px">완료 업무 상세 · 조회 전용</h4>
- <div class="srv-muted">지시자: ${safe(person(a.created_by))} · 담당자: ${safe(person(a.assignee_id))}</div>
- <p><b>업무 내용</b></p><p style="white-space:pre-wrap">${safe(a.description||'등록된 내용 없음')}</p>
-
- <h4>업무 등록 사진 (${archiveDetailImages.filter(im=>!im.comment_id).length}건)</h4>${archiveDetailImages.filter(im=>!im.comment_id).length?`<div class="srv-row" style="flex-wrap:wrap;gap:10px">${archiveDetailImages.filter(im=>!im.comment_id).map(im=>im.url?`<a href="${safe(im.url)}" target="_blank" rel="noopener noreferrer"><img src="${safe(im.url)}" alt="업무 첨부 사진" loading="lazy" style="width:130px;height:130px;object-fit:cover;border-radius:8px"></a>`:'<span class="srv-muted">사진 조회 권한 또는 링크 확인 필요</span>').join('')}</div>`:'<p class="srv-muted">첨부된 사진이 없습니다.</p>'}
- <h4>업무 보고 · 댓글 (${archiveDetailComments.length}건)</h4>${archiveDetailComments.length?archiveDetailComments.map(c=>`<div class="srv-line"><b>${safe(person(c.author_id))}</b> <span class="srv-muted">${safe(when(c.created_at))}</span><p style="white-space:pre-wrap">${safe(c.body||'')}</p>${jbCommentPhotoHtml(c.id,archiveDetailImages)}</div>`).join(''):'<p class="srv-muted">등록된 보고·댓글이 없습니다.</p>'}
-
- <details class="jb-task-time-details"><summary>시간 · 진행 이력 보기</summary><div class="jb-task-time-body">
- <p class="srv-muted">등록: ${safe(when(a.created_at))} · 완료: ${safe(when(a.completed_at))} · 완료 예정일: ${safe(a.due_date||'-')}</p>
- <div class="srv-row srv-clock"><span>◷ 예정 누적 <b>${safe(durationLabel(planned))}</b></span><span>▶ 진행 누적 <b>${safe(durationLabel(running))}</b></span><span>Ⅱ 보류 누적 <b>${safe(durationLabel(holding))}</b></span></div>
- <h4>진행 이력 (${x.length}건)</h4>${x.length?x.map(h=>`<div class="srv-line">${safe(when(h.changed_at))} · ${safe(status[h.previous_status]||h.previous_status||'최초')} → ${safe(status[h.new_status]||h.new_status||'-')}</div>`).join(''):'<p class="srv-muted">저장된 상태 변경 이력이 없습니다. 누적 시간은 이력에 따라 제한될 수 있습니다.</p>'}
-
- </div></details>
+ const shortWhen=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'-';
+ const mainImages=archiveDetailImages.filter(im=>!im.comment_id);
+ return `<div class="srv-note jb-archive-details jb-task-details-card" style="margin-top:12px;background:#f3f8f5">
+ <div class="jb-task-detail-head"><div class="jb-task-detail-heading"><b>완료 업무 상세 · 조회 전용</b><div class="srv-muted jb-task-issuer">지시자: ${safe(person(a.created_by))} · 담당자: ${safe(person(a.assignee_id))}</div></div><span class="srv-pill">완료</span></div>
+ <div class="jb-task-detail-columns">
+  <div class="jb-task-detail-primary">
+   <p style="margin:4px 0 6px"><b>업무 내용</b></p>
+   <p class="jb-task-detail-description" style="white-space:pre-wrap">${safe(a.description||'등록된 내용 없음')}</p>
+   ${mainImages.length?`<div class="srv-row" style="flex-wrap:wrap;gap:10px">${mainImages.map(im=>im.url?`<a href="${safe(im.url)}" target="_blank" rel="noopener noreferrer"><img src="${safe(im.url)}" alt="업무 첨부 사진" loading="lazy" style="width:130px;height:130px;object-fit:cover;border-radius:8px"></a>`:'<span class="srv-muted">사진 조회 권한 또는 링크 확인 필요</span>').join('')}</div>`:''}
+   <p class="srv-muted jb-task-detail-status">완료 예정일: ${safe(a.due_date||'미정')}</p>
+  </div>
+  <aside class="jb-task-detail-timing" aria-label="업무 시간 및 진행 이력">
+   <b class="jb-task-timing-title">시간 · 진행 이력</b>
+   <div class="jb-task-timing-dates"><span>등록 ${safe(shortWhen(a.created_at))}</span><span>완료 ${safe(shortWhen(a.completed_at))}</span></div>
+   <div class="srv-row srv-clock"><span>◷ 예정 누적 <b>${safe(durationLabel(planned))}</b></span><span>▶ 진행 누적 <b>${safe(durationLabel(running))}</b></span><span>Ⅱ 보류 누적 <b>${safe(durationLabel(holding))}</b></span></div>
+   <div class="jb-task-timing-history" aria-label="업무 상태 변경 기록">${x.length?x.map(h=>`<div class="jb-task-timing-history-row"><span>${safe(shortWhen(h.changed_at))}</span><span>${safe(status[h.previous_status]||h.previous_status||'최초')} → ${safe(status[h.new_status]||h.new_status||'-')}</span></div>`).join(''):'<span class="srv-muted">저장된 상태 변경 이력이 없습니다.</span>'}</div>
+  </aside>
+ </div>
+ <div class="jb-archive-comments"><h4>업무 보고 · 댓글 (${archiveDetailComments.length}건)</h4>${archiveDetailComments.length?archiveDetailComments.map(c=>`<div class="srv-line"><b>${safe(person(c.author_id))}</b> <span class="srv-muted">${safe(when(c.created_at))}</span><p style="white-space:pre-wrap">${safe(c.body||'')}</p>${jbCommentPhotoHtml(c.id,archiveDetailImages)}</div>`).join(''):'<p class="srv-muted">등록된 보고·댓글이 없습니다.</p>'}</div>
  </div>`;
 }
 function archivePage(){
@@ -4123,7 +4127,7 @@ function dashboard(){
  shell.querySelectorAll('.srv-task-delete').forEach(b=>b.onclick=()=>jbDeleteTask(b.dataset.id));
  shell.querySelectorAll('.srv-comment-edit').forEach(b=>b.onclick=()=>changeServerComment(b.dataset.id,'edit'));
  shell.querySelectorAll('.srv-comment-delete').forEach(b=>b.onclick=()=>changeServerComment(b.dataset.id,'delete'));
-  shell.querySelectorAll('.jb-task-status-action').forEach(btn=>btn.onclick=()=>{const task=records.tasks.find(t=>t.id===btn.dataset.task);const allowed=task&&task.status!=='completed'&&(profile?.app_role==='owner'||task.assignee_id===profile?.id||(profile?.app_role==='manager'&&task.department_id===profile?.department_id));if(!allowed){alert('업무 상태를 변경할 권한이 없거나 이미 완료된 업무입니다.');dashboard();return;}void changeTaskStatus(task.id,btn.dataset.status);});
+  shell.querySelectorAll('.jb-task-status-select').forEach(sel=>sel.onchange=()=>{const task=records.tasks.find(t=>t.id===sel.dataset.task);const allowed=task&&task.status!=='completed'&&(profile?.app_role==='owner'||task.assignee_id===profile?.id||(profile?.app_role==='manager'&&task.department_id===profile?.department_id));if(!allowed){alert('업무 상태를 변경할 권한이 없거나 이미 완료된 업무입니다.');dashboard();return;}void changeTaskStatus(task.id,sel.value);});
   shell.querySelectorAll('.srv-home-status').forEach(sel=>sel.onchange=()=>{const task=records.tasks.find(t=>t.id===sel.dataset.task);if(!task||task.assignee_id!==profile?.id){alert('본인 담당 업무만 상태를 변경할 수 있습니다.');dashboard();return;}changeTaskStatus(task.id,sel.value);});
  shell.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{homeDay=b.getAttribute('data-day');dashboard()});
  shell.querySelectorAll('[data-dept]').forEach(b=>b.onclick=()=>{openDept=openDept===b.dataset.dept?'':b.dataset.dept;dashboard()});
