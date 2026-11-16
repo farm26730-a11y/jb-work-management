@@ -608,6 +608,18 @@ header .rolebar button.active{background:#067d70!important;color:#fff!important}
 #jbServerShell .jb-task-submit-actions .jb-task-save-now:hover{background:#056a60!important}
 #jbServerShell .jb-task-submit-actions .srv-task-submit:disabled{opacity:.65;cursor:wait}
 @media(max-width:460px){#jbServerShell .jb-task-submit-actions{gap:7px}#jbServerShell .jb-task-submit-actions .srv-task-submit{font-size:12px;padding:10px 7px;min-height:57px}#jbServerShell .jb-task-submit-actions .srv-task-submit small{font-size:10px}}
+
+/* Compact 7-column archive calendar. Keep day numbers and counts on a single line on phones. */
+#jbServerShell .srv-archive-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;margin:12px 0;width:100%;min-width:0}
+#jbServerShell .srv-archive-weekday{text-align:center;font-size:12px;font-weight:650;color:#687d74;padding:4px 0;white-space:nowrap}
+#jbServerShell .srv-archive-calendar-grid .srv-archive-day{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;width:100%;min-height:66px;box-sizing:border-box;margin:0;padding:6px 2px!important;border:1px solid #dce8e2;border-radius:11px;background:#fff;color:#22513a;line-height:1.15;white-space:nowrap;word-break:keep-all;overflow-wrap:normal;text-align:center;font-variant-numeric:tabular-nums}
+#jbServerShell .srv-archive-calendar-grid .srv-archive-date-number{display:block;white-space:nowrap;word-break:keep-all;font-size:16px;font-weight:800;line-height:1.15}
+#jbServerShell .srv-archive-calendar-grid .srv-archive-date-count{display:block;white-space:nowrap;word-break:keep-all;overflow-wrap:normal;font-size:10px;font-weight:650;line-height:1.1;color:#557267}
+#jbServerShell .srv-archive-calendar-grid .srv-archive-day.has-completed{background:#edf8f2;border-color:#b6d9c9}
+#jbServerShell .srv-archive-calendar-grid .srv-archive-day.chosen{background:#087f72;color:white;border-color:#087f72}
+#jbServerShell .srv-archive-calendar-grid .srv-archive-day.chosen .srv-archive-date-count{color:#fff}
+#jbServerShell .srv-archive-calendar-grid .srv-archive-day:focus-visible{outline:2px solid #087f72;outline-offset:2px}
+@media(max-width:480px){#jbServerShell .srv-archive-calendar-grid{gap:3px}#jbServerShell .srv-archive-calendar-grid .srv-archive-day{min-height:60px;padding:5px 1px!important;border-radius:8px}#jbServerShell .srv-archive-calendar-grid .srv-archive-date-number{font-size:14px}#jbServerShell .srv-archive-calendar-grid .srv-archive-date-count{font-size:10px}}
 </style><link rel="icon" type="image/svg+xml" href="./jb-work-icon.svg"><link rel="manifest" href="./manifest.webmanifest?v=20261108-jb-icons-layout2"><meta name="theme-color" content="#087f70"><meta name="apple-mobile-web-app-capable" content="yes"><style id="jb-push-style">.jb-push-panel{background:#f0f9f6;border:1px solid #b8ddd3;padding:14px;border-radius:13px;margin:12px 0}.jb-push-panel input{display:block;max-width:100%;width:100%;margin:6px 0 12px;font-size:13px}.jb-push-panel button{margin:5px 5px 5px 0}@media(max-width:650px){.jb-push-panel .srv-row{flex-wrap:wrap}.jb-push-panel button{width:100%}}</style><style id="jb-leave-range-style">.jb-leave-range{align-items:center;gap:8px;flex-wrap:wrap;margin:9px 0}.jb-leave-range[hidden]{display:none!important}.jb-leave-range label{width:auto;margin:0;font-size:13px}.jb-leave-range input{max-width:175px;min-width:130px}.jb-leave-date-toolbar .srv-row{flex-wrap:wrap}@media(max-width:600px){.jb-leave-range input{flex:1 1 120px;max-width:100%}}</style><style>
 #jbMealV14{--mg:#087c70;--mb:#d9e8e2}
 #jbMealV14 .meal-mode{display:flex;gap:7px;margin:10px 0 16px}
@@ -1254,7 +1266,7 @@ async function loadProfile(){
  let {data:{user},error:authError}=await supa.auth.getUser();if(authError||!user){if(authError){login('연결 오류로 로그인 상태를 확인하지 못했습니다. 인터넷 연결을 확인한 후 다시 시도해 주세요.');return;}login('인증 세션이 없습니다. 로그인하세요.');return;}
  const {data,error}=await supa.from('jb_employees').select('id,name,position,app_role,department_id,active').eq('auth_user_id',user.id).eq('active',true).maybeSingle();
  if(error){login('직원 정보 조회에 실패했습니다. 네트워크 및 접근 권한을 확인하세요. 로그인 세션은 보존됩니다.');return;}if(!data){profile=null;login('이메일 계정 인증은 완료되었지만 아직 직원관리에서 계정 연결·활성화가 필요합니다. 대표님 또는 부서장에게 요청하세요.');return;}
- profile=data;jbAcctOpen=false;jbAcctState=null;jbAcctMsg='';repeatTemplates=[];repeatTemplatesLoaded=false;repeatTemplatesOwnerId='';repeatTemplatesRequestSeq++;await loadData();await loadRepeatTemplates();if(['owner','manager'].includes(profile?.app_role))void jbAcctReload(true);
+ profile=data;jbAcctOpen=false;jbAcctState=null;jbAcctMsg='';jbAcctNeedsRender=false;repeatTemplates=[];repeatTemplatesLoaded=false;repeatTemplatesOwnerId='';repeatTemplatesRequestSeq++;await loadData();await loadRepeatTemplates();if(['owner','manager'].includes(profile?.app_role))void jbAcctReload(true);
 }
 // V6.6.8.1: 로그인 후 변경된 재직상태/역할을 서버에서 재확인합니다.
 // 이 클라이언트 검사는 사용자 화면을 잠그기 위한 보조 장치입니다.
@@ -1839,7 +1851,7 @@ function jbReportPanel(){
  return `<div class="jb-report-item jb-report-taskrow"><div class="jb-report-taskcopy"><button type="button" class="jb-report-taskopen" data-jb-report-task="${safe(t.id)}" data-jb-report-employee="${safe(t.assignee_id)}"><span class="jb-report-itemtitle">${safe(t.title||'제목 없음')}</span></button><div class="jb-report-itemmeta">담당: ${safe(names.get(t.assignee_id)||'직원')} · ${safe(t.due_date||'기한 미지정')} · ${safe(status[t.status]||t.status)}${late?' · 기한 경과':''}</div></div>${editable?`<select class="jb-report-status" data-task="${safe(t.id)}" aria-label="${safe(t.title||'업무')} 상태 바로 변경" ${taskStatusSaving?'disabled':''}>${['planned','in_progress','hold','completed'].map(st=>`<option value="${st}" ${st===t.status?'selected':''}>${safe(status[st])}</option>`).join('')}</select>`:'<span class="srv-muted">조회 전용</span>'}</div>`;
 }).join('')):`<p class="srv-muted">${isRequests?'현재 미확인 요청이 없습니다.':'해당 업무가 없습니다.'}</p>`}
  ${jbReportFilter==='pending'&&chosen.length>displayLimit?`<button type="button" class="alt" id="jbReportMorePending" style="width:100%;margin-top:8px">더 보기 (${chosen.length-displayLimit}건 남음)</button>`:chosen.length>7?`<p class="jb-report-note">최근 7건을 표시합니다. 나머지 업무는 업무 목록에서 확인하세요.</p>`:''}</div>
- <div class="jb-report-actions">${['owner','manager'].includes(profile?.app_role)?`<button type="button" class="alt" id="jbAcctHomeRefresh" ${jbAcctBusy?'disabled':''}>가입 요청 새로고침${jbAcctState?' ('+signupRequests.length+')':''}</button>`:''}<button type="button" class="alt" data-jb-report-nav="inbox">🔔 알림 확인</button><button type="button" class="alt" data-jb-report-nav="tasks">내 업무 조회</button></div></section>`;
+ <div class="jb-report-actions"><button type="button" class="alt" data-jb-report-nav="inbox">🔔 알림 확인</button><button type="button" class="alt" data-jb-report-nav="tasks">내 업무 조회</button></div></section>`;
 }
 
 // V1.3: 직원 표시 직함순(권한/DB 저장 순서와 독립적인 화면 정렬).
@@ -2680,7 +2692,16 @@ let directorySearch='',directoryStatus='all',directoryRole='all';
 
 /* V1.3 시험: 회원가입 계정 관리, 서버에서 권한 재검사 */
 let jbAcctOpen=false,jbAcctBusy=false,jbAcctState=null,jbAcctMsg='',jbAcctSignupFormId='';
-setInterval(()=>{if(!profile||view!=='home'||!['owner','manager'].includes(profile.app_role)||jbAcctBusy||busy||document.hidden)return;const focused=document.activeElement;if(focused&&shell.contains(focused)&&focused.matches('input,textarea,select,[contenteditable="true"]'))return;void jbAcctReload(true);},60000);
+let jbAcctNeedsRender=false;
+function jbAcctCanAutoRefresh(){
+ if(!profile||!supa||!['owner','manager'].includes(profile.app_role)||!['home','employees'].includes(view)||jbAcctBusy||busy||document.hidden)return false;
+ const focused=document.activeElement;
+ return !(focused&&shell.contains(focused)&&focused.matches('input,textarea,select,[contenteditable="true"]'));
+}
+function jbAcctPoll(){if(jbAcctCanAutoRefresh())void jbAcctReload(true);}
+setInterval(jbAcctPoll,20000);
+window.addEventListener('focus',jbAcctPoll);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)jbAcctPoll();});
 function jbAccountAdminPanel(){
  if(!['owner','manager'].includes(profile?.app_role))return '';
  const list=jbAcctState?.accounts||[];
@@ -2703,7 +2724,6 @@ function jbAccountAdminPanel(){
   <div class="srv-row" style="align-items:center;gap:8px;flex-wrap:wrap"><h3 style="margin:0">회원가입 계정 관리</h3><button type="button" class="alt" id="jbAcctToggle">${jbAcctOpen?'접기':'계정 목록 열기'}</button></div>
   ${jbAcctOpen?`<p class="srv-muted">연결 해제는 업무·근태 이력을 보존합니다. 가입 계정 삭제는 대표님만 가능하며 연결 해제 후 진행합니다.</p>
   ${jbAcctMsg?`<p class="srv-note">${safe(jbAcctMsg)}</p>`:''}
-  <button type="button" class="alt" id="jbAcctRefresh" ${jbAcctBusy?'disabled':''}>목록 새로고침</button>
   ${jbAcctState?(items||'<p class="srv-muted">표시할 계정이 없습니다.</p>'):'<p class="srv-muted">회원가입 계정 목록을 불러오세요.</p>'}
   `:''}
  </section>`;
@@ -2737,12 +2757,25 @@ async function jbAcctReload(silent=false){
   if(jbAcctBusy||!['owner','manager'].includes(profile?.app_role))return;
   jbAcctBusy=true;
   if(!silent){jbAcctMsg='회원가입 계정 확인 중…';dashboard();}
-  try{jbAcctState=await jbAcctRequest();jbAcctMsg='현재 계정 상태입니다.';}
-  catch(e){jbAcctState=null;jbAcctMsg='가입 요청 조회 실패: '+String(e.message||e);}
-  finally{
+  const previousRole=profile?.app_role,previousEmployee=profile?.id;
+  try{
+    const next=await jbAcctRequest();
+    if(profile?.id!==previousEmployee||profile?.app_role!==previousRole)return;
+    const changed=JSON.stringify(jbAcctState?.accounts||[])!==JSON.stringify(next?.accounts||[])||
+      JSON.stringify(jbAcctState?.availableEmployees||[])!==JSON.stringify(next?.availableEmployees||[])||
+      (jbAcctMsg&&jbAcctMsg!=='현재 계정 상태입니다.');
+    jbAcctState=next;jbAcctMsg='현재 계정 상태입니다.';
+    if(changed)jbAcctNeedsRender=true;
+  }catch(e){
+    if(profile?.id!==previousEmployee||profile?.app_role!==previousRole)return;
+    const message='가입 요청 자동 조회 실패: '+String(e.message||e);
+    if(jbAcctMsg!==message)jbAcctNeedsRender=true;
+    jbAcctMsg=message;
+  }finally{
     jbAcctBusy=false;
     const active=document.activeElement;
-    if(!silent||!active||!shell.contains(active)||!active.matches('input,textarea,select,[contenteditable="true"]'))dashboard();
+    const editing=active&&shell.contains(active)&&active.matches('input,textarea,select,[contenteditable="true"]');
+    if(!silent||jbAcctNeedsRender&&!editing){jbAcctNeedsRender=false;dashboard();}
   }
 }
 async function jbAcctAction(action,userId){
@@ -3402,15 +3435,15 @@ function archivePage(){
  const [first,last,days]=archiveDates(month);
  const firstWeekday=new Date(first+'T00:00:00Z').getUTCDay();
  const counts=archiveDayCounts;
- const cells=['일','월','화','수','목','금','토'].map(d=>`<div style="text-align:center;font-size:12px;color:#6a8076">${d}</div>`);
+ const cells=['일','월','화','수','목','금','토'].map(d=>`<div class="srv-archive-weekday">${d}</div>`);
  for(let i=0;i<firstWeekday;i++)cells.push('<span></span>');
  for(let d=1;d<=days;d++){
   const day=`${month}-${String(d).padStart(2,'0')}`;
-  cells.push(`<button type="button" class="srv-archive-day ${archiveDay===day?'chosen':''}" data-archive-day="${day}" style="min-height:53px;border:1px solid #dde9e2;border-radius:10px;background:${archiveDay===day?'#d7f1e1':'#fff'};color:#22513a">${d}<small style="display:block;font-size:11px">${counts[day]||0}건</small></button>`);
+  cells.push(`<button type="button" class="srv-archive-day ${archiveDay===day?'chosen':''} ${counts[day]?'has-completed':''}" data-archive-day="${day}" aria-label="${d}일 완료 업무 ${counts[day]||0}건" aria-pressed="${archiveDay===day?'true':'false'}"><span class="srv-archive-date-number">${d}</span><small class="srv-archive-date-count">${counts[day]||0}건</small></button>`);
  }
  const baseShown=archiveDay?archiveRows.filter(t=>t.completed_at&&new Date(t.completed_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})===archiveDay):archiveRows;
  const shown=archiveDetailRecord&&archiveDetailRecord.status==='completed'&&!baseShown.some(t=>t.id===archiveDetailRecord.id)?[archiveDetailRecord,...baseShown]:baseShown;
- return `<div class="srv-row"><label style="margin:0">조회 월 <input type="month" id="srvArchiveMonth" value="${safe(month)}" style="max-width:210px"></label><label style="margin:0">부서 <select id="srvArchiveDept"><option value="all" ${archiveDepartment==='all'?'selected':''}>전체 부서</option>${(records.departments||[]).map(d=>`<option value="${safe(d.id)}" ${archiveDepartment===d.id?'selected':''}>${safe(d.name)}</option>`).join('')}</select></label><button type="button" class="alt" id="srvArchiveReload">다시 조회</button><button type="button" class="alt" id="srvArchiveAll">월 전체 보기</button><button type="button" class="alt" data-srv-archive-export="month" ${archiveLoading||archiveExportBusy?'disabled':''}>⬇ 월 전체 CSV 저장</button><button type="button" class="alt" data-srv-archive-export="day" ${archiveLoading||archiveExportBusy||!archiveDay?'disabled':''}>⬇ 선택 날짜 CSV 저장</button></div><p class="srv-muted">완료 시각 기준 ${safe(month)} · 달력 조회 ${Object.values(archiveDayCounts).reduce((a,b)=>a+b,0)}건 · 목록 최대 ${archiveRows.length}건. 날짜를 눌러 선택하면 날짜별 CSV 버튼이 활성화됩니다.</p>${archiveError?`<p class="srv-error">${safe(archiveError)}</p>`:''}${archiveTruncated?'<p class="srv-note">달력 날짜별 건수는 월 전체 조회 기준입니다. 아래 업무 목록은 최신 1,000건만 표시하며 전체 기록은 CSV로 내보낼 수 있습니다.</p>':''}${archiveLoading?'<p>완료 업무를 불러오는 중입니다.</p>':''}<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:12px 0">${cells.join('')}</div><h3>${archiveDay?safe(archiveDay)+' 완료 업무':'월 전체 완료 업무'} (${archiveDay?(archiveDayCounts[archiveDay]||0):Object.values(archiveDayCounts).reduce((a,b)=>a+b,0)}건)</h3><p class="srv-muted">전체 내역은 CSV에서 확인할 수 있습니다.</p>${shown.length?shown.map(t=>`<div class="srv-line"><b>${safe(t.title)}</b><div class="srv-muted">담당 ${safe(records.employees.find(e=>e.id===t.assignee_id)?.name||'직원명 확인 불가')} · 완료 ${safe(new Date(t.completed_at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}))}</div><button type="button" class="alt srv-archive-detail-toggle" data-id="${safe(t.id)}" aria-expanded="${archiveDetailId===t.id?'true':'false'}" style="margin-top:8px">${archiveDetailId===t.id?'상세 닫기':'상세 보기'}</button>${jbArchiveDetails(t)}</div>`).join(''):'<p class="srv-muted">선택한 기간에 완료된 업무가 없습니다.</p>'}`;
+ return `<div class="srv-row"><label style="margin:0">조회 월 <input type="month" id="srvArchiveMonth" value="${safe(month)}" style="max-width:210px"></label><label style="margin:0">부서 <select id="srvArchiveDept"><option value="all" ${archiveDepartment==='all'?'selected':''}>전체 부서</option>${(records.departments||[]).map(d=>`<option value="${safe(d.id)}" ${archiveDepartment===d.id?'selected':''}>${safe(d.name)}</option>`).join('')}</select></label><button type="button" class="alt" id="srvArchiveReload">다시 조회</button><button type="button" class="alt" id="srvArchiveAll">월 전체 보기</button><button type="button" class="alt" data-srv-archive-export="month" ${archiveLoading||archiveExportBusy?'disabled':''}>⬇ 월 전체 CSV 저장</button><button type="button" class="alt" data-srv-archive-export="day" ${archiveLoading||archiveExportBusy||!archiveDay?'disabled':''}>⬇ 선택 날짜 CSV 저장</button></div><p class="srv-muted">완료 시각 기준 ${safe(month)} · 달력 조회 ${Object.values(archiveDayCounts).reduce((a,b)=>a+b,0)}건 · 목록 최대 ${archiveRows.length}건. 날짜를 눌러 선택하면 날짜별 CSV 버튼이 활성화됩니다.</p>${archiveError?`<p class="srv-error">${safe(archiveError)}</p>`:''}${archiveTruncated?'<p class="srv-note">달력 날짜별 건수는 월 전체 조회 기준입니다. 아래 업무 목록은 최신 1,000건만 표시하며 전체 기록은 CSV로 내보낼 수 있습니다.</p>':''}${archiveLoading?'<p>완료 업무를 불러오는 중입니다.</p>':''}<div class="srv-archive-calendar-grid" role="group" aria-label="${safe(month)} 완료 업무 날짜 선택">${cells.join('')}</div><h3>${archiveDay?safe(archiveDay)+' 완료 업무':'월 전체 완료 업무'} (${archiveDay?(archiveDayCounts[archiveDay]||0):Object.values(archiveDayCounts).reduce((a,b)=>a+b,0)}건)</h3><p class="srv-muted">전체 내역은 CSV에서 확인할 수 있습니다.</p>${shown.length?shown.map(t=>`<div class="srv-line"><b>${safe(t.title)}</b><div class="srv-muted">담당 ${safe(records.employees.find(e=>e.id===t.assignee_id)?.name||'직원명 확인 불가')} · 완료 ${safe(new Date(t.completed_at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}))}</div><button type="button" class="alt srv-archive-detail-toggle" data-id="${safe(t.id)}" aria-expanded="${archiveDetailId===t.id?'true':'false'}" style="margin-top:8px">${archiveDetailId===t.id?'상세 닫기':'상세 보기'}</button>${jbArchiveDetails(t)}</div>`).join(''):'<p class="srv-muted">선택한 기간에 완료된 업무가 없습니다.</p>'}`;
 }
 
 
@@ -3936,7 +3969,6 @@ function dashboard(){
  shell.querySelectorAll('.jb-comment-attention-ack').forEach(b=>b.onclick=()=>void jbAcknowledgeComment(b.dataset.commentId));
  shell.querySelectorAll('[data-jb-report-task]').forEach(b=>b.onclick=()=>void jbOpenReportTask(b.dataset.jbReportTask,b.dataset.jbReportEmployee));
  shell.querySelectorAll('[data-jb-report-nav]').forEach(b=>b.onclick=()=>{view=b.dataset.jbReportNav;dashboard();});
- const acctHomeRefresh=shell.querySelector('#jbAcctHomeRefresh');if(acctHomeRefresh)acctHomeRefresh.onclick=()=>void jbAcctReload();
  shell.querySelectorAll('[data-jb-acct-action]').forEach(b=>b.onclick=()=>void jbAcctAction(b.dataset.jbAcctAction,b.dataset.id));
  shell.querySelectorAll('[data-jb-signup-new]').forEach(b=>b.onclick=()=>{jbAcctSignupFormId=jbAcctSignupFormId===b.dataset.jbSignupNew?'':b.dataset.jbSignupNew;dashboard();});
  shell.querySelectorAll('.jb-signup-create-form').forEach(f=>f.onsubmit=e=>void jbAcctCreateHomeEmployee(e));
@@ -4106,8 +4138,6 @@ function dashboard(){
  if(view==='employees'){
   const acctToggle=shell.querySelector('#jbAcctToggle');
   if(acctToggle)acctToggle.onclick=()=>{jbAcctOpen=!jbAcctOpen;dashboard();if(jbAcctOpen&&!jbAcctState)void jbAcctReload();};
-  const acctRefresh=shell.querySelector('#jbAcctRefresh');
-  if(acctRefresh)acctRefresh.onclick=()=>void jbAcctReload();
   const emailLinker=shell.querySelector('#srvEmployeeEmailLink');if(emailLinker)emailLinker.onsubmit=employeeEmailLink;
   const linker=shell.querySelector('#srvEmployeeLink');if(linker)linker.onsubmit=employeeLink;
   
