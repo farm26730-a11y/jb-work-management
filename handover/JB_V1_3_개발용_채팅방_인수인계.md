@@ -127,3 +127,11 @@
 - 개발 Supabase `apkrhhdmjxbvwtdktfaq`에 migration `jb_dev_completed_task_immutable_v16`: SECURITY INVOKER 트리거 `private.jb_completed_task_status_guard_v16`, `jb_tasks` 완료→예정·진행중·보류 변경 모두 거부(SQLSTATE 23514). 운영 DB/main은 읽기 전용으로 유지.
 - 실제 DEV 인증 대표 계정 JWT 문맥의 트랜잭션 시험에서 planned→in_progress→completed 성공, 3가지 되돌리기 차단 확인, ROLLBACK 후 시험 업무 0건. 소스 JS 4개 구문 검사 통과. **개발 Netlify 게시·갤럭시 화면 시각 확인은 미완료.**
 - 상세 변경 내역과 향후 운영 적용 조건은 공통 변경·배포 대장 `JB-261116-05` 참조.
+
+## 2026-11-16 추가: 업무 상세의 사진 우선 배치·시간 정보 접기 (JB-261116-06)
+- GitHub `development-test` 실행 `index.html` 커밋 `5304d286c40918a66441d597a08a15b4177b0c78`, 운영 `main`/Supabase 운영·개발 DB 데이터 변경 없음.
+- 완료 업무 보관함 상세: 업무 설명 바로 아래 **업무 등록 사진**을 표시, 그 아래 **업무 보고·댓글**(댓글별 첨부 사진은 각 댓글 아래 유지), 마지막에 **‘시간 · 진행 이력 보기’ 접기/펼치기**를 배치. 등록/완료 시각, 목표일, 누적 예정·진행·보류 시간 및 상태 이력은 이 기본 닫힌 영역에서 확인.
+- 진행 중/예정/보류 업무 상세(홈 및 내 업무): 설명 바로 아래 업무 사진 표시, 시간·상태 이력은 같은 기본 닫힌 화살표 영역에 배치. 댓글·사진 업로드·상태 변경 등 기존 동작 보존.
+- HTML 기본 `details/summary` 사용, 화살표 회전/민트·청록 UI 및 모바일 대응 CSS 추가.
+- 전체 인라인 JS 4개 구문 검사 통과. 완료/진행 업무 HTML 렌더 모의 시험 9항목 통과. **DEV Netlify Published, 갤럭시 실화면 및 실제 사진·댓글/업무 상태 회귀시험은 미검증**.
+- 자세한 변경/배포 확인 사항은 공통 변경·배포 대장의 `JB-261116-06` 참고.
