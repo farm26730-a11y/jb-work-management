@@ -96,3 +96,11 @@
 
 ## 8. 다음 개발용 채팅방에 처음 붙여넣을 문장
 > JB 업무관리 V1.3 개발용으로 진행합니다. GitHub `farm26730-a11y/jb-work-management`의 `development-test/handover/JB_V1_3_개발용_채팅방_인수인계.md`와 `JB_V1_3_공통_변경배포대장.md`를 최신으로 확인해 주세요. 개발은 `development-test`와 Supabase `JB-DEV(apkrhhdmjxbvwtdktfaq)`, Netlify `shiny-lollipop-c8c0fb`에서만 진행합니다. 운영 `main`과 `bnonnvgtbukztfhaxgrr`는 별도 운영 채팅방 담당이므로 변경하지 마세요. 다른 직원/관리자 자신의 업무에도 댓글과 사진이 가능해야 하며, 개발·시험 안내는 직원용 화면에 넣지 마세요. 현재 DEV Auth 0명이고 실제 모바일 업로드 시험이 남아 있습니다.
+
+## 2026-11-16 홈 대시보드/새 업무 등록 변경 (JB-261116-02)
+- GitHub `development-test` 실행 HTML 변경 커밋 `39ccbe15e1956e5fae3ca0a04cb65decd764a436`. 운영 `main`/운영 DB/개발 DB SQL 미변경.
+- 홈 기간 경과 타일 → 예정 · 보류 타일; 등록된 예정/보류 업무 목록과 상태 직접 변경, 기한 경과 안내. 12건 우선 노출, 더 보기 지원. 기존 권한 및 `jb_set_task_status_exclusive` RPC 사용.
+- ‘＋ 새 업무 등록’ 버튼은 홈 제목 우측 상단. 기존 업무 등록 화면으로 이동한다.
+- 업무 등록 시 예정(기본값) 또는 등록 직후 진행중 선택. 진행중 선택은 기존 단일 진행 정책에 따라 같은 담당자의 기존 진행중 업무 자동 보류. 상태 전환 실패 시 등록된 업무를 보존하고 오류 안내.
+- HTML JS 문법 4개 통과, 목록 렌더 및 등록 흐름 모의시험 3개 통과. **개발 Netlify 최신 커밋 Published와 실제 3계정 모바일 시험 미검증**.
+- 작업 상세 근거/배포 기록은 `handover/JB_V1_3_공통_변경배포대장.md` 참고.
