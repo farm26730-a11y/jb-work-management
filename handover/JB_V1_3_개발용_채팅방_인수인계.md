@@ -104,3 +104,12 @@
 - 업무 등록 시 예정(기본값) 또는 등록 직후 진행중 선택. 진행중 선택은 기존 단일 진행 정책에 따라 같은 담당자의 기존 진행중 업무 자동 보류. 상태 전환 실패 시 등록된 업무를 보존하고 오류 안내.
 - HTML JS 문법 4개 통과, 목록 렌더 및 등록 흐름 모의시험 3개 통과. **개발 Netlify 최신 커밋 Published와 실제 3계정 모바일 시험 미검증**.
 - 작업 상세 근거/배포 기록은 `handover/JB_V1_3_공통_변경배포대장.md` 참고.
+
+## 2026-11-16 추가: 업무 등록 권한과 버튼 2개 수정 (JB-261116-03)
+- 개발용 가입 계정으로 업무 등록 시 `permission denied for table jb_tasks` 발생. 개발 Supabase에서 `authenticated`에 `jb_tasks` SELECT만 있고 INSERT GRANT가 없는 것이 확인된 원인. 기존 INSERT RLS 정책과 직원 계정 연결은 정상.
+- 개발 Supabase `JB-DEV(apkrhhdmjxbvwtdktfaq)`에 migration `jb_dev_task_insert_grant_authenticated_20261116` 적용: `GRANT INSERT ON TABLE public.jb_tasks TO authenticated`. 기존 RLS 유지, `anon` INSERT/일반 UPDATE·DELETE는 열지 않음.
+- 로그인 개발 테스트 대표 계정 인증 문맥으로 업무 INSERT → 기존 `jb_set_task_status_exclusive` 진행중 전환을 실 DB 트랜잭션에서 성공 확인 및 ROLLBACK(시험 잔여 0).
+- 개발 HTML `development-test` 커밋 `f6a497f72f5abc7d9cd3659144205674ae03f434`: 등록 직후 진행 선택 드롭다운 제거, **‘그냥 등록하기’(예정) / ‘진행중으로 등록하기’** 2개 버튼을 민트/청록색으로 구분. 두 버튼은 동일 폼/사진·보고 로직을 사용하며, 기존 업무 자동 보류 RPC 유지.
+- 전체 인라인 JS 문법, 폼 렌더, 예정/진행중/전환실패 흐름 모의시험 통과. **DEV Netlify Published와 실제 기기 등록·알림·사진 통합시험은 미검증.**
+- 운영 `main`과 운영 Supabase는 수정하지 않음. 운영에도 동일한 INSERT GRANT 누락이 있으므로 운영 채팅에서는 별도 승인 전 수정 금지.
+- 상세 기록은 공통 변경·배포 대장 `JB-261116-03` 항목 참조.
