@@ -85,6 +85,18 @@
 - 정책: 여러 업무를 동시에 진행하는 신규 RPC/시간 배분은 이번 작업에서 미적용. 기존 단일 진행→다른 업무 자동 보류 규칙 유지.
 - 운영 배포: 승인 전까지 금지. 추후 운영 반영 시 dev-only Supabase URL 가드 코드 절대 통째로 복사하지 말 것.
 
+
+## 2026-11-16 업무 등록 권한·2개 등록 버튼 — `JB-261116-03`
+- 신고 증상: 실험용 업무 등록 시 `permission denied for table jb_tasks`.
+- **원인 실제 확인:** 개발 DB JB-DEV(`apkrhhdmjxbvwtdktfaq`) `public.jb_tasks`에서 `authenticated`에 `SELECT`만 허용, `INSERT` 권한 없음. RLS ON이며 업무 생성 RLS 정책(`owner`/`manager`/`staff`)은 기존에 존재함. 로그인/직원 계정 연결은 정상. 운영 DB에도 같은 테이블 GRANT 상태를 확인했으나 **운영 DB 미변경**.
+- **DB 변경(DEV 전용):** Supabase migration `jb_dev_task_insert_grant_authenticated_20261116` 성공. 기존 RLS와 직원별 역할 정책을 그대로 둔 채 `GRANT INSERT ON TABLE public.jb_tasks TO authenticated`만 적용. `anon` INSERT와 `authenticated` UPDATE/DELETE 권한은 주지 않음. RLS  ON/INSERT 정책 존재 확인 가드 포함.
+- **DEV DB 확인:** `authenticated` SELECT=true, INSERT=true, UPDATE=false, DELETE=false / `anon` INSERT=false / RLS ON. 실제 인증된 개발 테스트 대표 사용자 JWT 문맥으로 `jb_tasks` INSERT 후 `jb_set_task_status_exclusive('in_progress')` 호출을 트랜잭션 안에서 성공시키고 `ROLLBACK`; 테스트 업무 잔존 0건.
+- **HTML 수정:** 기존 등록 여부 선택 드롭다운 삭제. ‘그냥 등록하기’(민트색, 예정)와 ‘진행중으로 등록하기’(진청록색, 즉시 시작) 버튼 2개로 교체. 눌린 submit 버튼의 `data-task-mode`로 예정 저장/진행중 전환 결정. 이중 클릭 방지를 위해 두 버튼 함께 비활성화. 바로 진행 시 같은 직원의 기존 진행 업무 자동 보류 규칙 유지. 중간 RPC 실패 시 신규 업무는 예정 상태로 남기고 안내.
+- **변경 커밋:** `f6a497f72f5abc7d9cd3659144205674ae03f434`, 경로: 배포 폴더 `index.html`, **오직 `development-test` 브랜치**.
+- **검증:** 전체 인라인 JS 4개 문법검사 통과, 등록 폼 버튼 2개/선택창 없음 화면 모의시험 통과, 예정·즉시 진행·전환 오류 3개 흐름 시험 통과. DEV DB 실제 대표 역할 INSERT+진행 상태 RPC 롤백 시험 통과.
+- **미검증:** 개발 Netlify 해당 커밋 Published 상태와 실제 브라우저에서 버튼 2개 누른 뒤 이미지/보고/푸시까지 이어지는 통합 시험, manager/staff 신규 Auth 계정 역할별 시험.
+- **운영 유의:** 운영에서 동일 GRANT 누락 확인. 향후 운영 반영은 반드시 별도 승인·백업·기존 정책/프로시저 재검증 후 진행. 이번 작업으로 운영 서버/DB 변경 없음.
+
 ## 4. 공유 작업 대장 — 상태를 이 표에서 갱신
 | 작업 ID | 과제/현상 | 개발 상태 | 운영 상태 | 남은 검증·다음 조치 |
 | --- | --- | --- | --- | --- |
@@ -96,6 +108,7 @@
 | `JB-261115-04` | 운영 기록 전체 초기화 시 연차 원본·HR 장부 불일치 우려 | 개발 UI 비활성화 | `main` HTML에서도 버튼 **disabled** 확인. 서버 RPC 존재 | **운영에서 직접 RPC 초기화 금지**, 원본/원장 보존·복구 설계 전까지 잠금 |
 | `JB-261115-05` | 관리자 본인 연차 자동승인 경로가 신규 잔액 검사 우회 가능 | 개선 필요 | 별도 개선 미확인 | 관리자 본인 승인/수정/취소 RPC 및 연차 사용량 정합성 점검 |
 | `JB-261115-06` | 댓글/보고 푸시 알림 지연·중복 가능성 | 실기기 재검증 필요 | 미해결/현상 재확인 필요 | 실제 푸시 기록과 트리거, 중복 알림 키 조사 |
+| `JB-261116-03` | 업무 등록 권한 오류 수정 및 등록 버튼 2개 분리 | DEV DB INSERT GRANT + 개발 HTML 수정, 롤백 DB 실험·코드 모의시험 통과 | 운영 DB/main 미변경 | 개발 Netlify Published 확인, 실계정 버튼/사진/알림 검증 |
 | `JB-261116-02` | 홈 대시보드 예정·보류 업무 조회·즉시 상태변경, 새 업무 등록 버튼 및 등록 즉시 진행 선택 | **개발 HTML 적용**, 4개 스크립트 문법 및 화면/등록 모의시험 통과 | 운영 main/DB 변경 없음 | DEV Netlify 최신 커밋 게시 확인 및 실계정 홈/업무 등록/상태변경 회귀 시험 |
 | `JB-261116-01` | 반복 업무 간편 등록에 타인 양식이 보이는 현상 | 개발에서 계정 전환 시 이전 조회 결과 차단 및 owner_id 재검사 적용, 모의시험 통과 | 운영 main/DB 변경 없음 / 실제 직원별 화면 원인 미확정 | 개발 실계정·Netlify Published 확인 후 운영 수정 승인 요청 |
 
