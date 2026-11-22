@@ -3330,6 +3330,7 @@ async function jbWakeServerPush(type,eventId){
   console.warn('JB 즉시 푸시 요청 실패, 정기 발송으로 재시도',String(error?.message||error));
  }
 }
+const uncertainCommentForms=new WeakSet();
 async function submitServerComment(ev){
  ev.preventDefault();if(commentSubmitting||!profile)return;
  const form=ev.currentTarget,task_id=form.dataset.taskId;
@@ -3337,6 +3338,7 @@ async function submitServerComment(ev){
  const body=form.querySelector('textarea').value.trim()||(files.length?'사진 첨부':'');
  if(!records.tasks.some(t=>t.id===task_id))return alert('조회할 수 없는 업무입니다. 새로고침 후 확인해 주세요.');
  if(!body||body.length>2000)return alert('댓글 내용 또는 사진을 입력하세요. (내용은 최대 2,000자)');
+ if(uncertainCommentForms.has(form)&&!confirm('이전 댓글이 이미 저장됐을 수 있습니다. 기존 댓글을 확인하셨나요? 다시 등록하면 중복될 수 있습니다.'))return;
  const selector='.srv-home-detail-comment-form button[type="submit"], .srv-task-comment-form button[type="submit"]';
  const btn=form.querySelector('button[type="submit"]');
  commentSubmitting=true;
@@ -3361,13 +3363,14 @@ async function submitServerComment(ev){
   result=await supa.from('jb_task_comments').insert({task_id,author_id:profile.id,body}).select('id').single();
  }
  if(result.error){
-  saving=!result.error.code;
+  saving=!result.error.code||result.status>=500;
   if(needsReportCommentId&&['PGRST202','42883'].includes(result.error.code)){
    throw new Error('사진을 포함한 보고는 서버 준비가 필요합니다. 입력 내용과 선택한 사진은 그대로 유지됩니다.');
   }
   throw result.error;
  }
  savedComment=true;
+ uncertainCommentForms.delete(form);
  form.reset();
  if(isReport)void jbWakeServerPush('report',task_id);
  let photoError='';
@@ -3384,8 +3387,8 @@ async function submitServerComment(ev){
  }
  catch(e){
   const message=savedComment?'댓글은 저장됐지만 화면 갱신에 실패했습니다. 목록을 새로고침해 주세요.':
-   saving?'댓글 저장 결과를 확인할 수 없습니다. 새로고침 후 기존 댓글을 확인해 주세요.':'댓글 저장 실패';
-  if(saving&&!savedComment)form.reset();
+   saving?'댓글 저장 결과를 확인할 수 없습니다. 입력과 사진은 유지됩니다. 다시 등록하기 전에 기존 댓글을 확인해 주세요.':'댓글 저장 실패';
+  if(saving&&!savedComment)uncertainCommentForms.add(form);
   alert(message+'\n'+String(e.message||e));
  }
  finally{
