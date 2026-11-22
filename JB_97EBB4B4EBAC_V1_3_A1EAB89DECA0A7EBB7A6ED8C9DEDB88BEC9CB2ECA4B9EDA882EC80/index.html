@@ -3141,54 +3141,74 @@ function jbValidateTaskAttachmentFiles(files){
   if(f.size>25*1024*1024)throw new Error('사진 원본은 장당 25MB 이하만 첨부할 수 있습니다.');
  }
 }
+const jbTaskPhotoUploads=new Set();
 async function jbUploadTaskAttachments(taskId,files,commentId=null){
  if(!files.length)return;
  jbValidateTaskAttachmentFiles(files);
- const {count,error:countError}=await supa.from('jb_task_images').select('id',{count:'exact',head:true}).eq('task_id',taskId);
- if(countError)throw new Error('사진 개수 확인 실패: '+countError.message);
- if((count||0)+files.length>5)throw new Error('업무별 사진은 최대 5장입니다. 현재 '+(count||0)+'장 등록돼 있습니다.');
- for(const file of files){
-  let path='';
-  try{
-   const prepared=await prepareJbTaskPhoto(file);
-   if(prepared.size>5*1024*1024)throw new Error('압축 후 사진 용량이 5MB를 초과합니다.');
-   const ext=prepared.type==='image/jpeg'?'jpg':prepared.type==='image/png'?'png':'webp';
-   path=taskId+'/'+crypto.randomUUID()+'.'+ext;
-   const up=await supa.storage.from(TASK_PHOTO_BUCKET).upload(path,prepared,{contentType:prepared.type,upsert:false});
-   if(up.error)throw new Error('사진 파일 업로드 실패: '+up.error.message);
-   const saved=await supa.from('jb_task_images').insert({task_id:taskId,comment_id:commentId,storage_path:path,uploaded_by:profile.id});
-   if(saved.error)throw new Error('사진 기록 저장 실패: '+saved.error.message);
-   path='';
-  }catch(e){
-   if(path){try{await supa.storage.from(TASK_PHOTO_BUCKET).remove([path])}catch(_){}}
-   throw e;
+ const actor=profile?.id,client=supa;
+ if(!actor||!client)throw new Error('로그인 상태를 확인해 주세요.');
+ if(jbTaskPhotoUploads.has(taskId))throw new Error('이 업무의 사진을 등록 중입니다. 잠시 후 다시 시도해 주세요.');
+ jbTaskPhotoUploads.add(taskId);
+ try{
+  const {count,error:countError}=await client.from('jb_task_images').select('id',{count:'exact',head:true}).eq('task_id',taskId);
+  if(countError)throw new Error('사진 개수 확인 실패: '+countError.message);
+  if((count||0)+files.length>5)throw new Error('업무별 사진은 최대 5장입니다. 현재 '+(count||0)+'장 등록돼 있습니다.');
+  const bucket=client.storage.from(TASK_PHOTO_BUCKET);
+  for(const [index,file] of files.entries()){
+   let uploaded=false,recordRejected=false,path='';
+   try{
+    const prepared=await prepareJbTaskPhoto(file);
+    if(prepared.size>5*1024*1024)throw new Error('압축 후 사진 용량이 5MB를 초과합니다.');
+    const ext=prepared.type==='image/jpeg'?'jpg':prepared.type==='image/png'?'png':'webp';
+    const directory=commentId?taskId+'/comments/'+commentId:taskId;
+    path=directory+'/'+crypto.randomUUID()+'.'+ext;
+    if(profile?.id!==actor||supa!==client)throw new Error('로그인 계정이 변경됐습니다.');
+    const up=await bucket.upload(path,prepared,{contentType:prepared.type,upsert:false});
+    if(up.error)throw new Error('사진 파일 업로드 실패: '+up.error.message);
+    uploaded=true;
+    if(profile?.id!==actor||supa!==client)throw new Error('로그인 계정이 변경됐습니다.');
+    const row={task_id:taskId,storage_path:path,uploaded_by:actor};
+    if(commentId)row.comment_id=commentId;
+    const saved=await client.from('jb_task_images').insert(row);
+    if(saved.error){
+     recordRejected=!!saved.error.code&&!(saved.status>=500);
+     throw new Error('사진 기록 저장 실패: '+saved.error.message);
+    }
+   }catch(e){
+    let recovery='';
+    if(uploaded&&recordRejected){
+     try{
+      const removed=await bucket.remove([path]);
+      if(removed.error||!removed.data?.length)recovery=' 저장소 파일 정리를 확인하지 못했습니다.';
+     }catch(_){recovery=' 저장소 파일 정리를 확인하지 못했습니다.';}
+    }else if(uploaded){
+     recovery=' 기록 저장 결과가 확실하지 않아 파일을 보존했습니다. 목록을 확인해 주세요.';
+    }
+    const remaining=files.slice(index).map(f=>f.name).join(', ');
+    throw new Error(index+'장 등록 완료. 확인할 사진: '+remaining+'. '+String(e.message||e)+recovery);
+   }
   }
- }
+ }finally{jbTaskPhotoUploads.delete(taskId);}
 }
 async function uploadTaskPhoto(ev){
- ev.preventDefault();if(!profile||taskPhotoUploading||!expandedServerTask)return;
+ ev.preventDefault();
+ if(!profile||taskPhotoUploading||!expandedServerTask)return;
  const form=ev.currentTarget,taskId=form.dataset.taskId,file=form.querySelector('input[type=file]')?.files?.[0];
  if(!file)return alert('첨부할 사진을 선택하세요.');
- if(!['image/jpeg','image/png','image/webp'].includes(file.type))return alert('JPG, PNG, WEBP 사진만 올릴 수 있습니다.');
- if(file.size>25*1024*1024)return alert('원본 사진은 25MB 이하만 선택할 수 있습니다.');
- if(taskPhotoItems.length>=5)return alert('업무당 사진은 최대 5장까지 등록할 수 있습니다.');
- taskPhotoUploading=true;form.querySelector('button').disabled=true;
- let uploadedPath='';
+ taskPhotoUploading=true;
+ const button=form.querySelector('button[type="submit"]');
+ if(button)button.disabled=true;
  try{
-  const uploadFile=await prepareJbTaskPhoto(file);
-  if(uploadFile.size>5*1024*1024)throw new Error('사진 압축 후에도 5MB를 초과합니다. 더 작은 사진을 선택하세요.');
-  const ext=uploadFile.type==='image/jpeg'?'jpg':uploadFile.type==='image/png'?'png':'webp';
-  uploadedPath=taskId+'/'+crypto.randomUUID()+'.'+ext;
-  const up=await supa.storage.from(TASK_PHOTO_BUCKET).upload(uploadedPath,uploadFile,{contentType:uploadFile.type,upsert:false});
-  if(up.error)throw new Error('파일 저장 단계: '+up.error.message);
-  const saved=await supa.from('jb_task_images').insert({task_id:taskId,storage_path:uploadedPath,uploaded_by:profile.id});
-  if(saved.error)throw new Error('사진 기록 단계: '+saved.error.message);
-  uploadedPath='';
-  await loadTaskPhoto(taskId);
- }catch(e){
-  if(uploadedPath){try{await supa.storage.from(TASK_PHOTO_BUCKET).remove([uploadedPath])}catch(_){}}
-  alert('업무 사진 등록 실패: '+String(e.message||e));
- }finally{taskPhotoUploading=false;const b=shell.querySelector('#srvTaskPhotoForm button');if(b)b.disabled=false;}
+  await jbUploadTaskAttachments(taskId,[file]);
+  if(expandedServerTask===taskId&&view==='tasks')await loadTaskPhoto(taskId);
+ }catch(e){alert('업무 사진 등록 실패: '+String(e.message||e));}
+ finally{
+  taskPhotoUploading=false;
+  if(button)button.disabled=false;
+  const current=shell.querySelector('#srvTaskPhotoForm');
+  const submit=current?.querySelector('button[type="submit"]');
+  if(current?.dataset.taskId===taskId&&submit)submit.disabled=taskPhotoTask===taskId&&taskPhotoItems.length>=5;
+ }
 }
 // V6.6.6.8: Delete own task photo; owner can also delete. Database authorization is enforced in RPC.
 async function deleteTaskPhoto(photoId,taskId){
@@ -3201,8 +3221,8 @@ async function deleteTaskPhoto(photoId,taskId){
   const path=typeof data==='string'?data:data?.storage_path;
   if(!path)throw new Error('삭제할 파일 경로를 받지 못했습니다.');
   const storageResult=await supa.storage.from(TASK_PHOTO_BUCKET).remove([path]);
-  if(storageResult.error){
-   alert('사진 목록에서는 삭제됐지만 저장소 파일 정리에 실패했습니다. 관리자에게 문의하세요. 오류: '+storageResult.error.message);
+  if(storageResult.error||!storageResult.data?.length){
+   alert('사진 목록에서는 삭제됐지만 저장소 파일 정리에 실패했습니다. 관리자에게 문의하세요. 오류: '+(storageResult.error?.message||'삭제 확인 응답 없음'));
   }
   taskPhotoTask='';await loadTaskPhoto(taskId);
  }catch(e){alert('사진 삭제 실패: '+String(e.message||e));await loadTaskPhoto(taskId)}
@@ -3278,10 +3298,34 @@ function jbTaskIssuerName(t){
  if(profile?.id===t.created_by)return profile.name+(profile.position?' '+profile.position:'');
  return '등록자 확인 필요';
 }
-function jbCommentPhotoHtml(commentId,images){
+function jbCommentPhotoHtml(commentId,images,editable=false){
  const attached=(images||[]).filter(x=>x.comment_id===commentId);
  if(!attached.length)return '';
- return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0">${attached.map(im=>im.url?`<a href="${safe(im.url)}" target="_blank" rel="noopener noreferrer"><img src="${safe(im.url)}" alt="댓글 첨부 사진" loading="lazy" style="width:115px;height:105px;object-fit:cover;border-radius:8px;border:1px solid #d9e2df"></a>`:'<span class="srv-muted">사진을 불러올 수 없습니다.</span>').join('')}</div>`;
+ return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0">${attached.map(im=>{
+  const photo=im.url?`<a href="${safe(im.url)}" target="_blank" rel="noopener noreferrer"><img src="${safe(im.url)}" alt="댓글 첨부 사진" loading="lazy" style="width:115px;height:105px;object-fit:cover;border-radius:8px;border:1px solid #d9e2df"></a>`:'<span class="srv-muted">사진을 불러올 수 없습니다.</span>';
+  const canDelete=editable&&(profile?.app_role==='owner'||im.uploaded_by===profile?.id);
+  return `<div>${photo}${canDelete?`<button type="button" class="srv-task-photo-delete" data-id="${safe(im.id)}" data-task-id="${safe(im.task_id)}">사진 삭제</button>`:''}</div>`;
+ }).join('')}</div>`;
+}
+function jbExistingCommentPhotoForm(comment,taskId){
+ if(comment.author_id!==profile?.id)return '';
+ return `<form class="srv-comment-photo-form" data-comment-id="${safe(comment.id)}" data-task-id="${safe(taskId)}"><label>댓글 사진 추가 <input type="file" name="report_photos" accept="image/jpeg,image/png,image/webp" multiple></label><button type="button" onclick="jbOpenCamera(this,'report_photos')">사진 바로 찍기</button><button type="submit">사진 추가</button></form>`;
+}
+async function jbAddExistingCommentPhotos(ev){
+ ev.preventDefault();
+ const form=ev.currentTarget,{commentId,taskId}=form.dataset;
+ if(!profile||!records.taskComments.some(c=>c.id===commentId&&c.task_id===taskId&&c.author_id===profile.id))return alert('본인이 작성한 댓글에만 사진을 추가할 수 있습니다.');
+ const files=Array.from(form.querySelector('input[type="file"]').files);
+ if(!files.length)return alert('첨부할 사진을 선택하세요.');
+ const button=form.querySelector('button[type="submit"]');
+ if(button.disabled)return;
+ button.disabled=true;
+ try{await jbUploadTaskAttachments(taskId,files,commentId);}
+ catch(e){alert('댓글 사진 추가 실패: '+String(e.message||e)+' 등록된 사진을 확인한 후 빠진 파일만 추가해 주세요.');}
+ finally{
+  button.disabled=false;
+  if((expandedServerTask===taskId&&view==='tasks')||(homeSelectedTask===taskId&&view==='home'))await loadTaskPhoto(taskId);
+ }
 }
 function serverTaskDetails(t,readonly=false){
  const comments=records.taskComments.filter(c=>c.task_id===t.id);
@@ -3308,7 +3352,7 @@ function serverTaskDetails(t,readonly=false){
       <div class="jb-task-timing-history" aria-label="업무 상태 변경 기록">${timeHistory.length?timeHistory.map(h=>`<div class="jb-task-timing-history-row"><span>${safe(taskWhen(h.changed_at))}</span><span>${safe(status[h.previous_status]||h.previous_status||'최초')} → ${safe(status[h.new_status]||h.new_status||'-')}</span></div>`).join(''):'<span class="srv-muted">상태 변경 이력 없음</span>'}</div>
    </aside>
  </div>
- </div><h3>댓글 (${comments.length}건)</h3>${comments.length?comments.map(c=>`<div class="srv-line"><b>${safe(authorName(c.author_id))}</b> <span class="srv-muted">${safe(c.created_at?new Date(c.created_at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'')}</span><p style="white-space:pre-wrap">${safe(c.body)}</p>${jbCommentPhotoHtml(c.id,commentPhotos)}${c.author_id===profile.id?`<div class="srv-row" style="gap:6px"><button type="button" class="alt srv-comment-edit" data-id="${safe(c.id)}" style="padding:5px 10px">댓글 수정</button><button type="button" class="alt srv-comment-delete" data-id="${safe(c.id)}" style="padding:5px 10px">삭제</button></div>`:(profile.app_role==='owner'?`<button type="button" class="alt srv-comment-delete" data-id="${safe(c.id)}" style="padding:5px 10px">관리자 삭제</button>`:'')}</div>`).join(''):'<p class="srv-muted">등록된 댓글이 없습니다.</p>'}${`<form class="${readonly?'srv-home-detail-comment-form':'srv-task-comment-form'} jb-task-comment-form-redesign" data-task-id="${safe(t.id)}"><div class="jb-task-comment-heading-row"><label for="srvCommentBody">새 댓글</label><button type="submit" class="jb-task-comment-submit-top" ${commentSubmitting?'disabled':''}>${commentSubmitting?'등록 중...':'댓글 등록'}</button></div><textarea id="srvCommentBody" maxlength="2000" placeholder="댓글을 작성하거나 사진만 첨부하세요" style="width:100%;min-height:80px"></textarea><label style="display:block;margin:10px 0 4px">댓글 사진 (선택 · 이 댓글 아래 표시, 업무당 총 5장)</label><input type="file" name="report_photos" accept="image/jpeg,image/png,image/webp" multiple><button type="button" class="alt" onclick="jbOpenCamera(this, 'report_photos')">📷 사진 바로 찍기</button>${(t.assignee_id===profile.id||t.created_by===profile.id)&&profile.app_role!=='owner'?`<label style="display:flex;align-items:center;gap:8px;margin:9px 0"><input type="checkbox" name="request_review" style="width:auto"> 상급자 확인 요청 (업무 보고·수정 사항)</label><label style="display:flex;align-items:center;gap:8px;margin:9px 0"><input type="checkbox" name="request_owner" style="width:auto"> 대표님 직접 보고 (대표 홈 확인 요청에 표시)</label>`:''}</form>`}`;
+ </div><h3>댓글 (${comments.length}건)</h3>${comments.length?comments.map(c=>`<div class="srv-line"><b>${safe(authorName(c.author_id))}</b> <span class="srv-muted">${safe(c.created_at?new Date(c.created_at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'')}</span><p style="white-space:pre-wrap">${safe(c.body)}</p>${jbCommentPhotoHtml(c.id,commentPhotos,true)}${jbExistingCommentPhotoForm(c,t.id)}${c.author_id===profile.id?`<div class="srv-row" style="gap:6px"><button type="button" class="alt srv-comment-edit" data-id="${safe(c.id)}" style="padding:5px 10px">댓글 수정</button><button type="button" class="alt srv-comment-delete" data-id="${safe(c.id)}" style="padding:5px 10px">삭제</button></div>`:(profile.app_role==='owner'?`<button type="button" class="alt srv-comment-delete" data-id="${safe(c.id)}" style="padding:5px 10px">관리자 삭제</button>`:'')}</div>`).join(''):'<p class="srv-muted">등록된 댓글이 없습니다.</p>'}${`<form class="${readonly?'srv-home-detail-comment-form':'srv-task-comment-form'} jb-task-comment-form-redesign" data-task-id="${safe(t.id)}"><div class="jb-task-comment-heading-row"><label for="srvCommentBody">새 댓글</label><button type="submit" class="jb-task-comment-submit-top" ${commentSubmitting?'disabled':''}>${commentSubmitting?'등록 중...':'댓글 등록'}</button></div><textarea id="srvCommentBody" maxlength="2000" placeholder="댓글을 작성하거나 사진만 첨부하세요" style="width:100%;min-height:80px"></textarea><label style="display:block;margin:10px 0 4px">댓글 사진 (선택 · 이 댓글 아래 표시, 업무당 총 5장)</label><input type="file" name="report_photos" accept="image/jpeg,image/png,image/webp" multiple><button type="button" class="alt" onclick="jbOpenCamera(this, 'report_photos')">📷 사진 바로 찍기</button>${(t.assignee_id===profile.id||t.created_by===profile.id)&&profile.app_role!=='owner'?`<label style="display:flex;align-items:center;gap:8px;margin:9px 0"><input type="checkbox" name="request_review" style="width:auto"> 상급자 확인 요청 (업무 보고·수정 사항)</label><label style="display:flex;align-items:center;gap:8px;margin:9px 0"><input type="checkbox" name="request_owner" style="width:auto"> 대표님 직접 보고 (대표 홈 확인 요청에 표시)</label>`:''}</form>`}`;
 }
 // Request fast push only after a successful server-side comment INSERT.
 // On-demand delivery is best-effort; the 1-minute scheduled sender is the fallback.
@@ -3383,7 +3427,7 @@ async function submitServerComment(ev){
  }catch(e){photoError=String(e.message||e)}}
  await loadData();
  if(expandedServerTask===task_id||homeSelectedTask===task_id)await loadTaskPhoto(task_id);
- if(photoError)alert('보고 내용은 저장됐지만 사진 일부를 첨부하지 못했습니다. 등록된 댓글을 확인하고 댓글을 다시 등록하지 마세요.\n'+photoError);
+ if(photoError)alert('보고 내용은 저장됐지만 사진 일부를 첨부하지 못했습니다. 해당 댓글의 ‘사진 추가’에서 빠진 파일만 추가해 주세요.\n'+photoError);
  }
  catch(e){
   const message=savedComment?'댓글은 저장됐지만 화면 갱신에 실패했습니다. 목록을 새로고침해 주세요.':
@@ -4163,6 +4207,9 @@ function dashboard(){
  shell.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{const next=b.getAttribute('data-view');if(view==='attendance'&&next!=='attendance'&&rosterCanEdit()){rosterReadDraft();if(rosterDirty&&!confirm('저장하지 않은 인원배치 초안을 버리고 이동할까요?'))return;}if(next==='attendance'){rosterOpen(rosterDate||localDay());return;}if(next==='meals'){void jbMealOpen();return;}mobileMoreOpen=false;view=next;dashboard();if(next==='archive')loadArchive()});
  // 홈 상세 댓글 이벤트를 공통 대시보드 영역에 연결
  shell.querySelectorAll('.srv-home-detail-comment-form').forEach(f=>f.onsubmit=submitServerComment);
+ shell.querySelectorAll('.srv-comment-photo-form').forEach(f=>f.onsubmit=jbAddExistingCommentPhotos);
+  shell.querySelectorAll('.srv-task-photo-delete').forEach(btn=>btn.onclick=()=>deleteTaskPhoto(btn.dataset.id,btn.dataset.taskId));
+
  shell.querySelectorAll('.srv-task-edit-form').forEach(f=>f.onsubmit=e=>{e.preventDefault();jbUpdateTask(f.dataset.taskId)});
  shell.querySelectorAll('.srv-task-delete').forEach(b=>b.onclick=()=>jbDeleteTask(b.dataset.id));
  shell.querySelectorAll('.srv-comment-edit').forEach(b=>b.onclick=()=>changeServerComment(b.dataset.id,'edit'));
@@ -4367,7 +4414,6 @@ function dashboard(){
   shell.querySelectorAll('.srv-task-detail').forEach(btn=>btn.onclick=()=>{expandedServerTask=expandedServerTask===btn.dataset.id?null:btn.dataset.id;resetTaskPhoto();dashboard();if(expandedServerTask)loadTaskPhoto(expandedServerTask);});
   shell.querySelectorAll('.srv-task-comment-form').forEach(f=>f.onsubmit=submitServerComment);
   const photoForm=shell.querySelector('#srvTaskPhotoForm');if(photoForm)photoForm.onsubmit=uploadTaskPhoto;
-  shell.querySelectorAll('.srv-task-photo-delete').forEach(btn=>btn.onclick=()=>deleteTaskPhoto(btn.dataset.id,btn.dataset.taskId));
   shell.querySelectorAll('.srv-task-photo-open').forEach(btn=>btn.onclick=()=>{expandedServerTask=btn.dataset.id;resetTaskPhoto();dashboard();loadTaskPhoto(expandedServerTask);setTimeout(()=>shell.querySelector('#srvTaskPhotoForm')?.scrollIntoView({behavior:'smooth',block:'center'}),40);});
  }
 }
