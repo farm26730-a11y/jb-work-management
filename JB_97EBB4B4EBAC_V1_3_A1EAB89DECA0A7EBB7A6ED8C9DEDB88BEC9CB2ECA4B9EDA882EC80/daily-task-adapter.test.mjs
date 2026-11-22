@@ -235,3 +235,48 @@ test('16 adjacent proof for the same employee is accepted, but gaps and overlaps
   request.assignmentLedger.snapshotId = 'other-snapshot';
   expectFailure(request, 'incompatible', 'invalid_assignment_ledger');
 });
+
+test('17 assignment ending exactly at cutoff leaves an exact-cutoff completion unverified', () => {
+  const request = input();
+  request.source.history.pages[1].rows[0].changed_at = cutoff;
+  request.assignmentLedger = { snapshotId, periods: [
+    { taskId: task.id, employeeId: employee, from: task.created_at, to: cutoff },
+  ] };
+  const { report } = adaptDailyTaskSource(request);
+  assert.deepEqual(report.tasks, []);
+  const [row] = report.unverifiedAssignment;
+  assert.equal(row.reportAssigneeId, null);
+  assert.deepEqual(row.completions, [{ at: cutoff, changedBy: actor }]);
+});
+
+test('18 reassignment and completion at cutoff do not enter either employee’s confirmed results', () => {
+  const request = input();
+  request.source.tasks.pages[0].rows[0].assignee_id = actor;
+  request.source.history.pages[1].rows[0].changed_at = cutoff;
+  request.assignmentLedger = { snapshotId, periods: [
+    { taskId: task.id, employeeId: employee, from: task.created_at, to: cutoff },
+    { taskId: task.id, employeeId: actor, from: cutoff, to: null },
+  ] };
+  const earlier = adaptDailyTaskSource(request).report;
+  const current = adaptDailyTaskSource({ ...request, employeeId: actor }).report;
+  assert.deepEqual(earlier.tasks, []);
+  assert.deepEqual(current.tasks, []);
+  assert.equal(current.unverifiedAssignment[0].completedToday, true);
+  assert.equal(current.unverifiedAssignment[0].reportAssigneeId, null);
+});
+
+test('19 contiguous same-assignee evidence beginning at cutoff confirms cutoff events', () => {
+  const request = input();
+  request.source.history.pages[1].rows[0].changed_at = cutoff;
+  request.assignmentLedger = { snapshotId, periods: [
+    { taskId: task.id, employeeId: employee, from: task.created_at, to: cutoff },
+    { taskId: task.id, employeeId: employee, from: cutoff, to: null },
+  ] };
+  const { report } = adaptDailyTaskSource(request);
+  assert.deepEqual(report.unverifiedAssignment, []);
+  assert.equal(report.tasks[0].reportAssigneeId, employee);
+  assert.deepEqual(report.tasks[0].completions, [{ at: cutoff, changedBy: actor }]);
+
+  request.assignmentLedger.periods[0].to = '2026-11-22T08:59:59.999999Z';
+  assert.equal(adaptDailyTaskSource(request).report.unverifiedAssignment[0].reportAssigneeId, null);
+});

@@ -112,3 +112,39 @@ test('preview distinguishes confirmed zero, read error, and incompatible schema'
     await browser.close();
   }
 });
+
+test('393px preview renders data-derived titles and names as literal text', async () => {
+  const browser = await chromium.launch({
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/usr/bin/chromium',
+  });
+  try {
+    const title = '화분 <특수> & "큰따옴표" \'작은따옴표\'';
+    const scriptText = '<script data-preview-marker>window.previewMarker = true;</script>';
+    const historicalName = '담당 <b data-preview-marker>가</b> & 검토';
+    const currentName = '현재 <em data-preview-marker>나</em>';
+    const taskIds = source.tasks.pages[0].rows.map(row => row.id);
+    const page = await openPreview(browser, [
+      `titles.set(${JSON.stringify(taskIds[0])}, ${JSON.stringify(title)});`,
+      `titles.set(${JSON.stringify(taskIds[3])}, ${JSON.stringify(scriptText)});`,
+      `staff[0].name = ${JSON.stringify(historicalName)};`,
+      `staff[1].name = ${JSON.stringify(currentName)};`,
+    ].join('\n'));
+    const [first, second] = staff.map(person => employee(page, person));
+    await first.locator(':scope > summary').waitFor();
+    assert.match(await first.locator(':scope > summary').innerText(), /담당 <b data-preview-marker>가<\/b> & 검토/);
+    await first.locator(':scope > summary').tap();
+    const verified = first.locator('.confirmed .work').first();
+    assert.ok((await verified.locator('summary').innerText()).includes(title));
+    await verified.locator('summary').tap();
+    assert.ok((await verified.innerText()).includes('보고 기간 담당: ' + historicalName + ' · 현재 담당: ' + currentName));
+
+    await second.locator(':scope > summary').tap();
+    const unverified = second.locator('.assignment-unverified .work').first();
+    assert.ok((await unverified.locator('summary').innerText()).includes(scriptText));
+    assert.ok((await page.locator('#review').innerText()).includes(scriptText));
+    assert.equal(await page.locator('main [data-preview-marker]').count(), 0);
+    assert.equal(await page.evaluate(() => window.previewMarker), undefined);
+  } finally {
+    await browser.close();
+  }
+});

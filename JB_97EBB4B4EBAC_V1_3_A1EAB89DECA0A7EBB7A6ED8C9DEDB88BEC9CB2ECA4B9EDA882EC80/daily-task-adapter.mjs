@@ -100,21 +100,28 @@ function readAssignments(ledger, snapshotId, taskIds) {
   return byTask;
 }
 
-// A single documented employee must cover the entire applicable report interval.
+// Durations stop at cutoff, but the engine also reports events exactly at cutoff.
 function reportAssignee(periods, from, cutoff) {
-  let coveredThrough = from;
-  let employee = null;
-  for (const period of periods) {
-    if (period.to !== null && period.to <= from) continue;
-    if (period.from > coveredThrough || (employee !== null && employee !== period.employeeId)) return null;
-    employee = period.employeeId;
-    if (period.to === null || period.to > cutoff) return employee;
-    coveredThrough = period.to;
+  const first = periods.findIndex(period =>
+    period.from <= from && (period.to === null || from < period.to));
+  if (first === -1) return null;
+
+  const employee = periods[first].employeeId;
+  let end = periods[first].to;
+  for (let i = first + 1; end !== null && end <= cutoff; i++) {
+    const next = periods[i];
+    // A period ending at cutoff does not cover the cutoff instant.
+    if (!next || next.from !== end || next.employeeId !== employee) return null;
+    end = next.to;
   }
-  return null;
+  return employee;
 }
 
-/** Build a report from an authorized local snapshot envelope. See the contract document. */
+/**
+ * Adapt an envelope produced by an already-authorized server, or a local fixture.
+ * The authorization marker describes that input contract; it does not authenticate
+ * a caller or make a client-supplied envelope trustworthy.
+ */
 export function adaptDailyTaskSource({ date, cutoffTime, employeeId, source, assignmentLedger }) {
   if (!validId(employeeId)) throw new TypeError('Expected a canonical employee UUID');
   const emptyReport = summarizeDailyTaskTime({ date, cutoffTime, employeeId, tasks: [], history: [] });

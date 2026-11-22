@@ -125,8 +125,14 @@
     return `${count}건${unknown ? ` · 미확인 ${unknown}건` : ''}`;
   }
 
+  // Dynamic text is inserted into HTML text or quoted attribute values only.
+  const htmlEntities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => htmlEntities[char]);
+  const taskTitle = row => escapeHtml(titles.get(row.taskId) ?? '제목 없음');
+  const employeeName = id => escapeHtml(names.get(id) ?? '미지정');
+
   function fact(label, value) {
-    return `<div><dt>${label}</dt><dd>${value}</dd></div>`;
+    return `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`;
   }
 
   function workDetails(row) {
@@ -137,12 +143,12 @@
       `<li>${clock.format(new Date(event.at))} · ${stateLabel(event.from)} → ${stateLabel(event.to)}${event.changedBy === reviewerId ? ' · 합성 검토자 처리' : ''}</li>`);
     const segments = row.segments.filter(segment => segment.status !== 'completed')
       .map(segment => `<li>${clock.format(new Date(segment.from))}–${clock.format(new Date(segment.to))} · ${stateLabel(segment.status)}</li>`);
-    return `<details class="work" data-task="${row.taskId}">
-      <summary>${titles.get(row.taskId)} <small>${stateLabel(row.stateAtCutoff)}</small></summary>
+    return `<details class="work" data-task="${escapeHtml(row.taskId)}">
+      <summary>${taskTitle(row)} <small>${stateLabel(row.stateAtCutoff)}</small></summary>
       <div class="inside detail">
         <p>${flags.length ? `당일 확인: ${flags.join(' · ')}` : '확인된 당일 등록·진행·완료 기록 없음'}</p>
         ${row.assignmentVerified && row.currentAssigneeId !== row.reportAssigneeId
-          ? `<p class="muted">보고 기간 담당: ${names.get(row.reportAssigneeId)} · 현재 담당: ${names.get(row.currentAssigneeId) ?? '미지정'}</p>`
+          ? `<p class="muted">보고 기간 담당: ${employeeName(row.reportAssigneeId)} · 현재 담당: ${employeeName(row.currentAssigneeId)}</p>`
           : ''}
         <p>진행 ${timeLabel(row.runningMs, row.knownStateMs.in_progress)} · 보류 ${timeLabel(row.holdMs, row.knownStateMs.hold)}</p>
         ${row.unknownMs > 0 ? `<p class="notice">상태 미확인 구간 ${minutes(row.unknownMs)}</p>` : ''}
@@ -171,8 +177,8 @@
       const unfinished = rows.filter(row => row.workedToday === true && row.completedToday === false).length;
       const uncertain = rows.filter(row => row.workedToday !== false && row.completedToday !== true &&
         (row.workedToday === null || row.completedToday === null)).length;
-      return `<details class="employee" data-employee="${report.employeeId}">
-        <summary>${report.name} <small>담당 확인 ${rows.length}건 · 미확인 ${report.unverifiedAssignment.length}건</small></summary>
+      return `<details class="employee" data-employee="${escapeHtml(report.employeeId)}">
+        <summary>${escapeHtml(report.name)} <small>담당 확인 ${rows.length}건 · 미확인 ${report.unverifiedAssignment.length}건</small></summary>
         <div class="inside">
           <div class="assignment-group confirmed">
             <h3>보고 기간 담당 확인</h3>
@@ -195,8 +201,8 @@
       </details>`;
     }).join('');
     document.querySelector('#review').innerHTML = [
-      ...incomplete.map(row => `<li>${titles.get(row.taskId)} · 상태 이력 확인 필요</li>`),
-      ...unverified.map(row => `<li>${titles.get(row.taskId)} · 보고 기간 담당자 확인 필요</li>`),
+      ...incomplete.map(row => `<li>${taskTitle(row)} · 상태 이력 확인 필요</li>`),
+      ...unverified.map(row => `<li>${taskTitle(row)} · 보고 기간 담당자 확인 필요</li>`),
     ].join('') || '<li>확인 필요 업무가 없습니다.</li>';
     document.querySelector('#counts').innerHTML = [
       fact('전체 업무', `${confirmed.length + unverified.length}건`),
