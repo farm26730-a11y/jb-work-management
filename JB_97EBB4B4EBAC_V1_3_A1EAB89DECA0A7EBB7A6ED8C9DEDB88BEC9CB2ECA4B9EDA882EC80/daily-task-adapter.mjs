@@ -22,7 +22,7 @@ function validInstant(value) {
   return Number.isFinite(at) && new Date(at).toISOString().slice(0, 23) === value.slice(0, 23);
 }
 
-function compatible(schema, taskStatuses) {
+export function isDailyTaskSourceSchemaCompatible(schema, taskStatuses) {
   return Array.isArray(taskStatuses) && new Set(taskStatuses).size === statuses.size &&
     taskStatuses.every(status => statuses.has(status)) && Object.entries(columns).every(([table, expected]) =>
     Object.entries(expected).every(([column, type]) => schema?.[table]?.[column] === type));
@@ -133,7 +133,7 @@ export function adaptDailyTaskSource({ date, cutoffTime, employeeId, source, ass
   if (source?.status !== 'ok' || source.authorization !== 'verified') {
     return failure('forbidden', 'report_scope_unverified');
   }
-  if (source.contract !== 'jb-task-source-v1' || !compatible(source.schema, source.taskStatuses)) {
+  if (source.contract !== 'jb-task-source-v1' || !isDailyTaskSourceSchemaCompatible(source.schema, source.taskStatuses)) {
     return failure('incompatible', 'schema_mismatch');
   }
   if (source.scope !== 'all_tasks_created_through_cutoff_with_history' ||

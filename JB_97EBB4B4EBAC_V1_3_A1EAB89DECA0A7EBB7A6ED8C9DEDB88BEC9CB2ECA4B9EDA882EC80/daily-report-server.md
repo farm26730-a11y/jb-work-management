@@ -58,3 +58,49 @@ RLS·스키마는 그대로 둔다. 공개 응답은 승인된 필드만 선택�
 node --test JB_*/daily-report-server.test.mjs
 node --test JB_*/daily-{task-time,task-adapter,report-preview,report-server}.test.mjs
 ```
+
+## JB-DEV 연결 모듈
+
+서버 내부에서 `daily-report-jb-dev.mjs`의
+`createJbDevDailyReportReader()`를 한 번 생성해 재사용한다. 이 모듈을
+미리보기나 기존 앱에 포함하지 않는다. 서버 실행 환경에 승인된 `pg` 8.x
+드라이버가 필요하며, DB 사용 시에만 불러온다.
+
+환경변수 이름:
+
+- `JB_REPORT_SUPABASE_URL` — JB-DEV의 공식 HTTPS Supabase URL.
+- `JB_REPORT_SUPABASE_PUBLISHABLE_KEY` — 같은 프로젝트의 publishable 키.
+- `JB_REPORT_DATABASE_URL` — 승인된 읽기 전용 JB-DEV PostgreSQL DSN.
+  직접 연결 또는 프로젝트가 일치하는 Supabase pooler DSN을 사용한다.
+  TLS 호스트 검증을 적용하는 `sslmode=verify-full`이 필요하다.
+  운영 프로젝트, 광역 계정 및 임의 DSN 옵션은 거부한다.
+  컨트롤타워 확인에 따라 supabase_read_only_user도 BYPASSRLS 계정으로
+  분류해 차단한다. postgres, supabase_admin, service_role도 사용하지 않는다.
+  실제 DB 계정 사용에는 컨트롤타워의 별도 승인이 필요하다.
+
+세 값 가운데 하나라도 없으면 `not_implemented`를 반환한다. 공식
+Supabase Auth 사용자 조회(`GET /auth/v1/user`, SDK의 `getUser(jwt)`에
+해당)로 토큰을 검증한다. JWT의 발급자·만료·주체를 읽는 것은 사전 거부와
+검증된 사용자 응답 비교에만 사용한다. 토큰이나 연결정보를 기록하지 않는다.
+
+PostgreSQL 연결부는 한 연결에서 읽기 전용 REPEATABLE READ를 시작하고,
+실제 스냅샷 식별자와 트랜잭션 시각을 얻는다. 카탈로그 계약, 승인된 업무
+범위의 독립 건수, 전체 키셋 페이지를 같은 트랜잭션에서 읽는다. UTC 시각은
+SQL에서 마이크로초 6자리로 포맷해 JavaScript Date 왕복에 따른 정밀도 손실을
+피한다. 업무 ID와 이력 (changed_at, id)를 커서로 쓰고, 현재 담당자로 범위를
+줄이지 않는다. 준비 및 정상 빈 결과는 COMMIT, 실패는 ROLLBACK이며
+연결을 반환한다. 직원이나 보고 데이터를 읽기 전에 현재 역할 및 세션
+역할의 광역 역할 멤버십·관리 속성(BYPASSRLS 포함)과 public 생성 권한,
+대상 테이블의 쓰기·참조·트리거 권한을 확인하고 위험하거나 확인 불가하면
+거부한다. 이 검사는 실제 계정의 전체 권한 검토를 대체하지 않는다. RLS가 연결 계정의 대상 조회에 적용되면 가려진 행을 0건으로
+오인하지 않도록 전체 보고를 거부한다. 이 모듈은 RLS나 권한을 바꾸지 않는다.
+
+실제 연결 전 승인된 계정으로 완전한 조회 범위 및 최소 SELECT 권한, TLS,
+드라이버·pooler 호환성, 기존 제약의 카탈로그 표현, 실제 토큰 검증을 확인해야
+한다. 보고 범위를 입증할 수 없다면 연결을 승인하지 않는다. 독립 배정 원장은
+연결하지 않았으며, 이력이 없는 담당자를 확정 실적에 넣지 않는다.
+현재 테스트는 합성 응답과 모의 드라이버만 사용한다.
+
+```sh
+node --test JB_*/daily-{task-time,task-adapter,report-preview,report-server,report-jb-dev}.test.mjs
+```
