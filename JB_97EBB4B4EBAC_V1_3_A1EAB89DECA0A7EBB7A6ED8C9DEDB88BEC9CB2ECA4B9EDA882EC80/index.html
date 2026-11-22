@@ -197,6 +197,15 @@ input,select,textarea{border-radius:11px;border-color:#d7e5df;padding:11px 12px}
 .jb-task-comment-form-redesign input[type="file"]{display:block;margin:7px 0 10px}
 .jb-task-comment-form-redesign label{font-size:13px}
 @media(max-width:750px){.jb-task-detail-redesign .jb-task-detail-columns{display:block}.jb-task-detail-redesign .jb-task-detail-timing{margin-top:10px}.jb-task-comment-form-redesign .jb-task-comment-submit-top{max-width:100%}}
+
+/* Task detail / comment placement adjustment (development review). */
+.jb-task-detail-redesign .jb-task-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.jb-task-detail-redesign .jb-task-detail-head .jb-task-edit-top{margin:0 0 0 auto;flex:0 1 auto;max-width:100%}
+.jb-task-detail-redesign .jb-task-detail-head .jb-task-edit-top summary{white-space:normal}
+.jb-task-comment-form-redesign .jb-task-comment-heading-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.jb-task-comment-form-redesign .jb-task-comment-heading-row label{margin:0;font-weight:700}
+.jb-task-comment-form-redesign .jb-task-comment-heading-row .jb-task-comment-submit-top{margin:0 0 0 auto;flex:0 0 auto}
+@media(max-width:480px){.jb-task-detail-redesign .jb-task-detail-head{gap:8px}.jb-task-comment-form-redesign .jb-task-comment-heading-row{gap:8px}}
 </style><style>
 .archive-calendar{padding:15px;border:1px solid #d9e9e5;border-radius:16px;background:#f8fcfa;margin-bottom:16px}.archive-calendar-head{align-items:center;margin-bottom:12px}.archive-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}.archive-week{text-align:center;font-size:12px;color:#718780;padding:5px 0}.archive-day{min-height:54px;border:1px solid #e5edea;border-radius:9px;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;color:#24463e}.archive-day small{font-size:10px;color:#087c68}.archive-day.with-items{background:#e8f7ef;border-color:#a7d9ca}.archive-day.picked{background:#087c68;color:white;border-color:#087c68}.archive-day.picked small{color:white}@media(max-width:480px){.archive-calendar{padding:9px}.archive-calendar-grid{gap:3px}.archive-day{min-height:45px;font-size:12px}}
 </style>
@@ -3293,14 +3302,13 @@ function serverTaskDetails(t,readonly=false){
  const taskWhen=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'-';
  const homeStatusControl=canChangeTaskHere?`<div class="jb-task-state-panel"><label class="jb-task-state-label" for="srvDetailStatus_${safe(t.id)}">업무 상태</label><select id="srvDetailStatus_${safe(t.id)}" class="jb-task-status-select" data-task="${safe(t.id)}" aria-label="업무 상태 변경" ${taskStatusSaving?'disabled':''}>${[['planned','예정'],['hold','보류'],['in_progress','진행중'],['completed','완료']].map(([value,label])=>`<option value="${value}" ${t.status===value?'selected':''}>${label}</option>`).join('')}</select></div>`:'<div class="srv-muted jb-task-state-readonly">완료된 업무는 상태를 변경할 수 없습니다.</div>';
  return `<div class="srv-note jb-task-details-card jb-task-detail-redesign" style="margin:12px 0">
- <div class="jb-task-detail-head"><div class="jb-task-detail-heading"><b>업무 상세</b><div class="srv-muted jb-task-issuer">지시자: ${safe(jbTaskIssuerName(t))}</div></div></div>
+ <div class="jb-task-detail-head"><div class="jb-task-detail-heading"><b>업무 상세</b><div class="srv-muted jb-task-issuer">지시자: ${safe(jbTaskIssuerName(t))}</div></div>${taskEditControls}</div>
  <div class="jb-task-detail-columns">
    <div class="jb-task-detail-primary">
      <p class="jb-task-detail-description" style="white-space:pre-wrap">${safe(t.description||'설명 없음')}</p>
      ${taskPhotoHtml(t.id,readonly,true)}
      <div class="srv-muted jb-task-detail-status">${canChangeTaskHere?'목표일: ':'상태: '+safe(status[t.status]||t.status)+' · 목표일: '}${safe(t.due_date||'미정')}</div>
      ${homeStatusControl}
-     ${taskEditControls}
    </div>
    <aside class="jb-task-detail-timing" aria-label="업무 시간 및 진행 이력">
       <b class="jb-task-timing-title">시간 · 진행 이력</b>
@@ -3309,7 +3317,7 @@ function serverTaskDetails(t,readonly=false){
       <div class="jb-task-timing-history" aria-label="업무 상태 변경 기록">${timeHistory.length?timeHistory.map(h=>`<div class="jb-task-timing-history-row"><span>${safe(taskWhen(h.changed_at))}</span><span>${safe(status[h.previous_status]||h.previous_status||'최초')} → ${safe(status[h.new_status]||h.new_status||'-')}</span></div>`).join(''):'<span class="srv-muted">상태 변경 이력 없음</span>'}</div>
    </aside>
  </div>
- </div><h3>댓글 (${comments.length}건)</h3>${comments.length?comments.map(c=>`<div class="srv-line"><b>${safe(authorName(c.author_id))}</b> <span class="srv-muted">${safe(c.created_at?new Date(c.created_at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'')}</span><p style="white-space:pre-wrap">${safe(c.body)}</p>${jbCommentPhotoHtml(c.id,commentPhotos)}${c.author_id===profile.id?`<form class="srv-comment-photo-form" data-task-id="${safe(t.id)}" data-comment-id="${safe(c.id)}" style="margin:8px 0;padding:8px 10px;border:1px solid #dae7df;border-radius:8px"><label style="display:block;font-size:12px;margin-bottom:4px">댓글 사진 추가 · 최대 5장</label><input type="file" name="report_photos" accept="image/jpeg,image/png,image/webp" multiple><button type="button" class="alt" onclick="jbOpenCamera(this, 'report_photos')">📷 촬영</button><button type="submit" class="alt" ${commentPhotoAttachBusy||commentPhotos.length>=5?'disabled':''}>사진 추가</button></form>`:''}${c.author_id===profile.id?`<div class="srv-row" style="gap:6px"><button type="button" class="alt srv-comment-edit" data-id="${safe(c.id)}" style="padding:5px 10px">댓글 수정</button><button type="button" class="alt srv-comment-delete" data-id="${safe(c.id)}" style="padding:5px 10px">삭제</button></div>`:(profile.app_role==='owner'?`<button type="button" class="alt srv-comment-delete" data-id="${safe(c.id)}" style="padding:5px 10px">관리자 삭제</button>`:'')}</div>`).join(''):'<p class="srv-muted">등록된 댓글이 없습니다.</p>'}${`<form class="${readonly?'srv-home-detail-comment-form':'srv-task-comment-form'} jb-task-comment-form-redesign" data-task-id="${safe(t.id)}"><label>새 댓글</label><button type="submit" class="jb-task-comment-submit-top" ${commentSubmitting?'disabled':''}>${commentSubmitting?'등록 중...':'댓글 등록'}</button><textarea id="srvCommentBody" maxlength="2000" placeholder="업무 진행 상황이나 전달할 내용을 입력하세요" style="width:100%;min-height:80px"></textarea><label style="display:block;margin:10px 0 4px">댓글 사진 (선택 · 이 댓글 아래 표시, 업무당 총 5장)</label><input type="file" name="report_photos" accept="image/jpeg,image/png,image/webp" multiple><button type="button" class="alt" onclick="jbOpenCamera(this, 'report_photos')">📷 사진 바로 찍기</button>${(t.assignee_id===profile.id||t.created_by===profile.id)&&profile.app_role!=='owner'?`<label style="display:flex;align-items:center;gap:8px;margin:9px 0"><input type="checkbox" name="request_review" style="width:auto"> 상급자 확인 요청 (업무 보고·수정 사항)</label><label style="display:flex;align-items:center;gap:8px;margin:9px 0"><input type="checkbox" name="request_owner" style="width:auto"> 대표님 직접 보고 (대표 홈 확인 요청에 표시)</label>`:''}</form>`}`;
+ </div><h3>댓글 (${comments.length}건)</h3>${comments.length?comments.map(c=>`<div class="srv-line"><b>${safe(authorName(c.author_id))}</b> <span class="srv-muted">${safe(c.created_at?new Date(c.created_at).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'')}</span><p style="white-space:pre-wrap">${safe(c.body)}</p>${jbCommentPhotoHtml(c.id,commentPhotos)}${c.author_id===profile.id?`<form class="srv-comment-photo-form" data-task-id="${safe(t.id)}" data-comment-id="${safe(c.id)}" style="margin:8px 0;padding:8px 10px;border:1px solid #dae7df;border-radius:8px"><label style="display:block;font-size:12px;margin-bottom:4px">댓글 사진 추가 · 최대 5장</label><input type="file" name="report_photos" accept="image/jpeg,image/png,image/webp" multiple><button type="button" class="alt" onclick="jbOpenCamera(this, 'report_photos')">📷 촬영</button><button type="submit" class="alt" ${commentPhotoAttachBusy||commentPhotos.length>=5?'disabled':''}>사진 추가</button></form>`:''}${c.author_id===profile.id?`<div class="srv-row" style="gap:6px"><button type="button" class="alt srv-comment-edit" data-id="${safe(c.id)}" style="padding:5px 10px">댓글 수정</button><button type="button" class="alt srv-comment-delete" data-id="${safe(c.id)}" style="padding:5px 10px">삭제</button></div>`:(profile.app_role==='owner'?`<button type="button" class="alt srv-comment-delete" data-id="${safe(c.id)}" style="padding:5px 10px">관리자 삭제</button>`:'')}</div>`).join(''):'<p class="srv-muted">등록된 댓글이 없습니다.</p>'}${`<form class="${readonly?'srv-home-detail-comment-form':'srv-task-comment-form'} jb-task-comment-form-redesign" data-task-id="${safe(t.id)}"><div class="jb-task-comment-heading-row"><label for="srvCommentBody">새 댓글</label><button type="submit" class="jb-task-comment-submit-top" ${commentSubmitting?'disabled':''}>${commentSubmitting?'등록 중...':'댓글 등록'}</button></div><textarea id="srvCommentBody" maxlength="2000" placeholder="업무 진행 상황이나 전달할 내용을 입력하세요" style="width:100%;min-height:80px"></textarea><label style="display:block;margin:10px 0 4px">댓글 사진 (선택 · 이 댓글 아래 표시, 업무당 총 5장)</label><input type="file" name="report_photos" accept="image/jpeg,image/png,image/webp" multiple><button type="button" class="alt" onclick="jbOpenCamera(this, 'report_photos')">📷 사진 바로 찍기</button>${(t.assignee_id===profile.id||t.created_by===profile.id)&&profile.app_role!=='owner'?`<label style="display:flex;align-items:center;gap:8px;margin:9px 0"><input type="checkbox" name="request_review" style="width:auto"> 상급자 확인 요청 (업무 보고·수정 사항)</label><label style="display:flex;align-items:center;gap:8px;margin:9px 0"><input type="checkbox" name="request_owner" style="width:auto"> 대표님 직접 보고 (대표 홈 확인 요청에 표시)</label>`:''}</form>`}`;
 }
 // Request fast push only after a successful server-side comment INSERT.
 // On-demand delivery is best-effort; the 1-minute scheduled sender is the fallback.
@@ -3376,7 +3384,18 @@ async function submitServerComment(ev){
  if(photoError)alert('댓글은 저장됐지만 사진 첨부에 실패했습니다. 해당 댓글 아래의 사진 추가 기능으로 다시 시도하세요.\n'+photoError);
  }
  catch(e){alert('댓글 저장 실패: '+String(e.message||e));if(btn)btn.disabled=false;}
- finally{commentSubmitting=false;}
+ finally{
+  commentSubmitting=false;
+  // loadData() may redraw the form while the submit flag is true.
+  // Restore the current DOM controls as well as the original button.
+  const resetSubmit=button=>{
+   if(!button)return;
+   button.disabled=false;
+   button.textContent='댓글 등록';
+  };
+  resetSubmit(btn);
+  shell.querySelectorAll('.srv-home-detail-comment-form button[type="submit"], .srv-task-comment-form button[type="submit"]').forEach(resetSubmit);
+ }
 }
 
 // V6.6.8.6.1: 본인 댓글 수정·삭제 (대표는 삭제만 추가 허용)
