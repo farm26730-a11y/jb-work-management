@@ -51,6 +51,10 @@
   dt { color: var(--muted); font-size: .77rem; }
   dd { margin: 4px 0 0; font-weight: 700; font-size: .9rem; overflow-wrap: anywhere; }
   .detail { font-size: .86rem; }
+  .assignment-group { margin-top: 14px; }
+  .assignment-unverified { padding: 10px; border: 1px solid #dfc9a2; border-radius: 8px; background: #fff9ed; }
+  .assignment-unverified h3 { margin-top: 0; }
+  .assignment-unverified p { margin-bottom: 8px; }
   .notice { color: #784400; }
   .counts { margin: 0; }
   .counts dd { font-size: 1.25rem; }
@@ -89,46 +93,15 @@
   </section>
 </main>
 <script type="module">
-  import { summarizeDailyTaskTime } from './daily-task-time.mjs';
+  import { adaptDailyTaskSource } from './daily-task-adapter.mjs';
+  import { date, cutoffTime, staff, titles, reviewerId, source, assignmentLedger } from './daily-report-preview-fixture.mjs';
 
-  const date = '2026-11-22';
-  const cutoffTime = '18:00';
-  const day = (time, dayOfMonth = '22') => `2026-11-${dayOfMonth}T${time}:00+09:00`;
-  const staff = [
-    { id: 'sample-a', name: '합성 직원 가' },
-    { id: 'sample-b', name: '합성 직원 나' },
-  ];
-  const tasks = [
-    { id: 'a1', assignee_id: 'sample-a', title: '화분 진열 위치 점검', created_at: day('08:30'), assignmentVerified: true },
-    { id: 'a2', assignee_id: 'sample-a', title: '온실 점검 기록 정리', created_at: day('14:00', '21'), assignmentVerified: true },
-    { id: 'a3', assignee_id: 'sample-a', title: '포장 자재 예약 확인', created_at: day('14:00'), assignmentVerified: true },
-    { id: 'b1', assignee_id: 'sample-b', title: '관수 상태 관찰', created_at: day('21:30', '21'), assignmentVerified: true },
-    { id: 'b2', assignee_id: 'sample-b', title: '입고 준비 목록 점검', created_at: day('12:00', '21'), assignmentVerified: true },
-    { id: 'b3', assignee_id: 'sample-b', title: '작업대 재배치 검토', created_at: day('15:00') },
-  ];
-  const history = [
-    ['a1', day('09:00'), 'planned', 'in_progress'],
-    ['a1', day('10:00'), 'in_progress', 'hold'],
-    ['a1', day('11:00'), 'hold', 'in_progress'],
-    ['a1', day('12:00'), 'in_progress', 'completed', 'sample-reviewer'],
-    ['a2', day('13:00'), 'planned', 'completed'],
-    ['b1', day('23:30', '21'), 'planned', 'in_progress'],
-    ['b1', day('19:00'), 'in_progress', 'completed'],
-    ['b2', day('10:00'), 'in_progress', 'hold'],
-    ['b2', day('11:00'), 'hold', 'completed'],
-  ].map(([task_id, changed_at, previous_status, new_status, changed_by]) =>
-    ({ task_id, changed_at, previous_status, new_status, changed_by }));
-  const coverageByTask = new Map(tasks.map(task => [
-    task.id,
-    { from: task.id === 'b2' ? day('08:00') : task.created_at, through: day(cutoffTime) },
-  ]));
-  const titles = new Map(tasks.map(task => [task.id, task.title]));
   const states = { planned: '예정', in_progress: '진행 중', hold: '보류', completed: '완료' };
-  const reports = staff.map(person => ({
-    ...person,
-    ...summarizeDailyTaskTime({ date, cutoffTime, employeeId: person.id, tasks, history, coverageByTask }),
+  const names = new Map(staff.map(person => [person.id, person.name]));
+  const results = staff.map(person => ({
+    person,
+    ...adaptDailyTaskSource({ date, cutoffTime, employeeId: person.id, source, assignmentLedger }),
   }));
-
   const clock = new Intl.DateTimeFormat('ko-KR', {
     timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   });
@@ -161,13 +134,16 @@
       ['등록', row.registeredToday], ['진행', row.workedToday], ['완료', row.completedToday],
     ].filter(([, flag]) => flag === true).map(([label]) => label);
     const transitions = row.transitions.map(event =>
-      `<li>${clock.format(new Date(event.at))} · ${stateLabel(event.from)} → ${stateLabel(event.to)}${event.changedBy === 'sample-reviewer' ? ' · 합성 검토자 처리' : ''}</li>`);
+      `<li>${clock.format(new Date(event.at))} · ${stateLabel(event.from)} → ${stateLabel(event.to)}${event.changedBy === reviewerId ? ' · 합성 검토자 처리' : ''}</li>`);
     const segments = row.segments.filter(segment => segment.status !== 'completed')
       .map(segment => `<li>${clock.format(new Date(segment.from))}–${clock.format(new Date(segment.to))} · ${stateLabel(segment.status)}</li>`);
     return `<details class="work" data-task="${row.taskId}">
       <summary>${titles.get(row.taskId)} <small>${stateLabel(row.stateAtCutoff)}</small></summary>
       <div class="inside detail">
         <p>${flags.length ? `당일 확인: ${flags.join(' · ')}` : '확인된 당일 등록·진행·완료 기록 없음'}</p>
+        ${row.assignmentVerified && row.currentAssigneeId !== row.reportAssigneeId
+          ? `<p class="muted">보고 기간 담당: ${names.get(row.reportAssigneeId)} · 현재 담당: ${names.get(row.currentAssigneeId) ?? '미지정'}</p>`
+          : ''}
         <p>진행 ${timeLabel(row.runningMs, row.knownStateMs.in_progress)} · 보류 ${timeLabel(row.holdMs, row.knownStateMs.hold)}</p>
         ${row.unknownMs > 0 ? `<p class="notice">상태 미확인 구간 ${minutes(row.unknownMs)}</p>` : ''}
         <h3>당일 상태 변경 이력</h3>
@@ -181,46 +157,70 @@
   const relevant = row => row.registeredToday !== false || row.workedToday !== false ||
     row.completedToday !== false || row.transitions.length > 0 ||
     row.knownStateMs.hold > 0 || row.issues.length > 0;
-  const all = reports.flatMap(report => report.tasks.filter(relevant));
-  const unverified = reports.flatMap(report => report.unverifiedAssignment.filter(relevant));
-  const incomplete = all.filter(row => row.issues.length > 0 || row.unknownMs > 0);
-  const completed = all.filter(row => row.completedToday === true).length;
-  const running = all.filter(row => row.stateAtCutoff === 'in_progress').length;
+  function renderReports(reports) {
+    const confirmed = reports.flatMap(report => report.tasks.filter(relevant));
+    const unverified = reports.flatMap(report => report.unverifiedAssignment);
+    const incomplete = confirmed.filter(row => row.issues.length > 0 || row.unknownMs > 0);
+    const completed = confirmed.filter(row => row.completedToday === true).length;
+    const running = confirmed.filter(row => row.stateAtCutoff === 'in_progress').length;
 
-  document.querySelector('#overview').textContent =
-    `합성 직원 ${reports.length}명의 업무 중 당일 완료 ${completed}건, 마감 시 진행 중 ${running}건입니다. 확인 필요 업무는 ${incomplete.length + unverified.length}건입니다.`;
-  document.querySelector('#employees').innerHTML = reports.map(report => {
-    const rows = report.tasks.filter(relevant);
-    const unfinished = rows.filter(row => row.workedToday === true && row.completedToday === false).length;
-    const uncertain = rows.filter(row => row.workedToday !== false && row.completedToday !== true &&
-      (row.workedToday === null || row.completedToday === null)).length;
-    return `<details class="employee" data-employee="${report.employeeId}">
-      <summary>${report.name} <small>확인된 담당 업무 ${rows.length}건</small></summary>
-      <div class="inside">
-        <dl class="facts">
-          ${fact('오늘 등록', flagCount(rows, 'registeredToday'))}
-          ${fact('오늘 진행', flagCount(rows, 'workedToday'))}
-          ${fact('오늘 완료', flagCount(rows, 'completedToday'))}
-          ${fact('진행 후 미완료', `${unfinished}건${uncertain ? ` · 미확인 ${uncertain}건` : ''}`)}
-          ${fact('진행 합계', total(rows, 'runningMs', 'in_progress'))}
-          ${fact('보류 합계', total(rows, 'holdMs', 'hold'))}
-        </dl>
-        ${rows.map(workDetails).join('')}
-        ${report.unverifiedAssignment.filter(relevant).map(row =>
-          `<p class="muted notice">${titles.get(row.taskId)} · 담당 관계 미확인, 직원 집계 제외</p>`).join('')}
-      </div>
-    </details>`;
-  }).join('');
-  document.querySelector('#review').innerHTML = [
-    ...incomplete.map(row => `<li>${titles.get(row.taskId)} · 상태 이력 확인 필요</li>`),
-    ...unverified.map(row => `<li>${titles.get(row.taskId)} · 보고 기간 담당자 확인 필요</li>`),
-  ].join('') || '<li>확인 필요 업무가 없습니다.</li>';
-  document.querySelector('#counts').innerHTML = [
-    fact('전체 업무', `${all.length + unverified.length}건`),
-    fact('당일 완료', `${completed}건`),
-    fact('마감 시 진행 중', `${running}건`),
-    fact('확인 필요', `${incomplete.length + unverified.length}건`),
-  ].join('');
+    document.querySelector('#overview').textContent =
+      `담당 확인 업무 중 당일 완료 ${completed}건, 마감 시 진행 중 ${running}건입니다. 보고 기간 담당 미확인 업무는 ${unverified.length}건입니다.`;
+    document.querySelector('#employees').innerHTML = reports.map(report => {
+      const rows = report.tasks.filter(relevant);
+      const unfinished = rows.filter(row => row.workedToday === true && row.completedToday === false).length;
+      const uncertain = rows.filter(row => row.workedToday !== false && row.completedToday !== true &&
+        (row.workedToday === null || row.completedToday === null)).length;
+      return `<details class="employee" data-employee="${report.employeeId}">
+        <summary>${report.name} <small>담당 확인 ${rows.length}건 · 미확인 ${report.unverifiedAssignment.length}건</small></summary>
+        <div class="inside">
+          <div class="assignment-group confirmed">
+            <h3>보고 기간 담당 확인</h3>
+            <dl class="facts">
+              ${fact('오늘 등록', flagCount(rows, 'registeredToday'))}
+              ${fact('오늘 진행', flagCount(rows, 'workedToday'))}
+              ${fact('오늘 완료', flagCount(rows, 'completedToday'))}
+              ${fact('진행 후 미완료', `${unfinished}건${uncertain ? ` · 미확인 ${uncertain}건` : ''}`)}
+              ${fact('확정 업무 진행 합계', rows.length ? total(rows, 'runningMs', 'in_progress') : '확정 업무 없음')}
+              ${fact('확정 업무 보류 합계', rows.length ? total(rows, 'holdMs', 'hold') : '확정 업무 없음')}
+            </dl>
+            ${rows.map(workDetails).join('')}
+          </div>
+          ${report.unverifiedAssignment.length ? `<div class="assignment-group assignment-unverified">
+            <h3>현재 담당 업무 · 보고 당시 담당자 미확인</h3>
+            <p class="muted">아래 상태 기준 시간은 직원별 확정 합계에서 제외됩니다.</p>
+            ${report.unverifiedAssignment.map(workDetails).join('')}
+          </div>` : ''}
+        </div>
+      </details>`;
+    }).join('');
+    document.querySelector('#review').innerHTML = [
+      ...incomplete.map(row => `<li>${titles.get(row.taskId)} · 상태 이력 확인 필요</li>`),
+      ...unverified.map(row => `<li>${titles.get(row.taskId)} · 보고 기간 담당자 확인 필요</li>`),
+    ].join('') || '<li>확인 필요 업무가 없습니다.</li>';
+    document.querySelector('#counts').innerHTML = [
+      fact('전체 업무', `${confirmed.length + unverified.length}건`),
+      fact('당일 완료 · 담당 확인', `${completed}건`),
+      fact('마감 시 진행 중 · 담당 확인', `${running}건`),
+      fact('확인 필요', `${incomplete.length + unverified.length}건`),
+    ].join('');
+  }
+
+  const failure = results.find(result => result.report === null);
+  if (failure) {
+    const messages = {
+      incompatible: '업무 원본의 데이터 계약이 바뀌었습니다.',
+      incomplete: '업무 원본 조회가 완료되지 않았습니다.',
+      forbidden: '보고서 조회 권한을 확인할 수 없습니다.',
+      error: '업무 원본 조회에 실패했습니다.',
+    };
+    document.querySelector('#overview').textContent = messages[failure.status];
+  } else if (results.every(result => result.status === 'empty')) {
+    document.querySelector('#overview').textContent = '조회가 완료되었습니다. 해당 범위의 업무가 0건입니다.';
+  } else {
+    renderReports(results.map(({ person, report }) => ({ ...person, ...report })));
+  }
+
 </script>
 </body>
 </html>

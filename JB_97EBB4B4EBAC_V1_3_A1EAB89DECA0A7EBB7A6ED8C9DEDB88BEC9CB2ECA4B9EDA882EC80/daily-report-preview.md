@@ -11,11 +11,24 @@ node --test JB_*/daily-task-time.test.mjs
 
 ## 화면과 집계 모듈
 
-미리보기 HTML의 합성 업무와 이력을 직원별로 `summarizeDailyTaskTime()`에
-전달한다. 업무 상세는 반환된 상태 구간과 당일 상태 전환을 표시한다.
-직원 합계에는 보고 구간의 담당 관계가 확인된 업무만 포함한다.
-시간이 일부만 확인되면 합계는 미확인으로 표시하고 확인된 시간도 보여준다.
-AI 종합요약과 확인사항은 검증용 규칙으로 작성한다.
+미리보기는 `daily-report-preview-fixture.mjs`의 합성 스냅샷과 별도 합성
+배정 원장을 `adaptDailyTaskSource()`에 전달한다. 어댑터는 입력을 검증하고
+`summarizeDailyTaskTime()`으로 계산한다. 보고 기간 담당이 확인된 업무만
+확정 합계에 포함한다. 현재 담당 관계만 있는 업무는 별도 영역에서 상태 기준
+시간과 이력을 열어 볼 수 있다. 정상 0건과 데이터 오류는 다른 메시지를 표시한다.
+요약과 확인사항은 검증용 규칙으로 작성한다.
+
+저장소 루트에서 자동 검증:
+
+```sh
+node --test JB_*/daily-task-adapter.test.mjs JB_*/daily-task-time.test.mjs
+node --test JB_*/daily-report-preview.test.mjs
+```
+
+브라우저 테스트는 Node에서 해석 가능한 Playwright와 Chromium이 필요하다.
+기본 실행 파일은 /usr/bin/chromium이며 다른 위치는
+PLAYWRIGHT_CHROMIUM_EXECUTABLE로 지정한다. 테스트는 외부 네트워크를
+차단하고 로컬 파일만 로드한다.
 
 ## 실데이터 연결 전 확인
 
@@ -38,5 +51,5 @@ AI 종합요약과 확인사항은 검증용 규칙으로 작성한다.
   조회를 도입하려면 복원 근거를 집계 모듈에 전달하는 계약을 먼저 추가한다.
 - `jb_task_assignment_ack_v13`은 일부 업무의 확인 요청을 업무당 한 건으로
   덮어쓰거나 삭제한다. 이를 담당자 재배정 원장으로 사용할 수 없다.
-  보고 구간의 담당 관계 근거가 확보된 경우에만 `assignmentVerified`를
-  사용한다. `changed_by`는 상태를 변경한 실행자다.
+  신뢰할 수 있는 독립 배정 원장으로 보고 구간의 담당 관계를 검증할 수
+  있을 때에만 어댑터에 `assignmentLedger`를 제공한다. `changed_by`는 상태를 변경한 실행자다.
