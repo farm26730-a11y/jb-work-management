@@ -174,11 +174,10 @@ function taskSummary(task, events, coverage, start, cutoff) {
  * assignment for the entire applicable window. Candidate tasks without that
  * evidence are returned separately so their time is never attributed.
  */
-export function summarizeDailyTaskTime({ date, cutoffTime, employeeId, tasks, history, coverageByTask = new Map() }) {
+export function summarizeDailyTaskRows({ date, cutoffTime, tasks, history, coverageByTask = new Map() }) {
   if (!validDate(date) || typeof cutoffTime !== 'string' || !timePattern.test(cutoffTime)) {
     throw new RangeError('Expected a valid Seoul date and explicit local cutoff time');
   }
-  if (typeof employeeId !== 'string' || !employeeId.trim()) throw new TypeError('Expected an employee ID');
   const time = cutoffTime.length === 5 ? cutoffTime + ':00' : cutoffTime;
   const start = instant(date + 'T00:00:00+09:00');
   const cutoff = instant(date + 'T' + time + '+09:00');
@@ -189,18 +188,23 @@ export function summarizeDailyTaskTime({ date, cutoffTime, employeeId, tasks, hi
     if (!byTask.has(entry.task_id)) byTask.set(entry.task_id, []);
     byTask.get(entry.task_id).push(entry);
   }
-  const attributed = [];
-  const unverifiedAssignment = [];
-  for (const task of tasks) {
-    if (task.assignee_id !== employeeId) continue;
-    const result = taskSummary(task, byTask.get(task.id) ?? [], coverageByTask.get(task.id), start, cutoff);
-    if (result === null) continue;
-    const destination = result.assignmentVerified ? attributed : unverifiedAssignment;
-    destination.push(result);
-  }
+  const rows = tasks.map(task =>
+    taskSummary(task, byTask.get(task.id) ?? [], coverageByTask.get(task.id), start, cutoff)).filter(Boolean);
   return {
-    employeeId, date, timezone: 'Asia/Seoul', start: iso(start), cutoff: iso(cutoff),
+    date, timezone: 'Asia/Seoul', start: iso(start), cutoff: iso(cutoff),
     timeBasis: '업무 상태 기준 시간', holdReason: '원본 이력에서 구분할 수 없음',
-    tasks: attributed, unverifiedAssignment,
+    rows,
+  };
+}
+
+export function summarizeDailyTaskTime({ employeeId, tasks, ...input }) {
+  if (typeof employeeId !== 'string' || !employeeId.trim()) throw new TypeError('Expected an employee ID');
+  const { rows, ...window } = summarizeDailyTaskRows({
+    ...input, tasks: tasks.filter(task => task.assignee_id === employeeId),
+  });
+  return {
+    employeeId, ...window,
+    tasks: rows.filter(row => row.assignmentVerified),
+    unverifiedAssignment: rows.filter(row => !row.assignmentVerified),
   };
 }

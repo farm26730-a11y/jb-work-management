@@ -148,3 +148,61 @@ test('393px preview renders data-derived titles and names as literal text', asyn
     await browser.close();
   }
 });
+
+test('393px integrated preview refreshes date and cutoff and reports unassigned and prior work', async () => {
+  const browser = await chromium.launch({
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/usr/bin/chromium',
+  });
+  try {
+    const page = await openPreview(browser);
+    await page.locator('.employee').first().waitFor();
+    assert.match(await page.locator('#counts').innerText(), /전체 업무\s*7건/);
+    assert.match(await page.locator('#counts').innerText(), /보고일 전에 종료\s*1건/);
+    await page.locator('#unassigned summary').first().tap();
+    assert.match(await page.locator('#unassigned').innerText(), /분갈이 자재 점검/);
+    assert.equal(await page.getByText('전일에 종료한 업무').count(), 0);
+
+    await page.getByLabel('마감시각').fill('10:00');
+    await page.getByRole('button', { name: '보고 조회' }).tap();
+    assert.match(await page.locator('#report-window').innerText(), /2026-11-22 · 10:00/);
+    await employee(page, staff[0]).locator(':scope > summary').tap();
+    assert.match(await employee(page, staff[0]).locator('.confirmed').innerText(), /확정 업무 진행 합계\s*60분/);
+
+    await page.getByLabel('보고일').fill('2026-11-21');
+    await page.getByRole('button', { name: '보고 조회' }).tap();
+    assert.match(await page.locator('#report-window').innerText(), /2026-11-21 · 10:00/);
+    assert.equal(await page.locator('.employee[open]').count(), 0);
+    await page.locator('#unassigned summary').first().tap();
+    assert.match(await page.locator('#unassigned').innerText(), /전일에 종료한 업무/);
+
+    await page.getByLabel('보고일').fill('2026-11-23');
+    await page.getByRole('button', { name: '보고 조회' }).tap();
+    assert.match(await page.locator('#overview').innerText(), /조회가 완료되지 않았습니다/);
+    assert.equal(await page.locator('.employee').count(), 0);
+    assert.equal(await page.locator('#counts').innerText(), '');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 393);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('integrated output retains provenance and groups each relevant JB task exactly once', async () => {
+  const { loadSyntheticDailyReport } = await import('./daily-report-preview-fixture.mjs');
+  const { report } = loadSyntheticDailyReport({ date, cutoffTime });
+  const rows = report.employees.flatMap(person => [...person.tasks, ...person.unverifiedAssignment]).concat(report.unassigned);
+  assert.equal(report.contract, 'jb-integrated-daily-report-v1');
+  assert.equal(new Set(rows.map(row => row.sourceSystem + '/' + row.sourceTaskId)).size, rows.length);
+  assert.ok(rows.every(row => row.sourceSystem === 'jb_app'));
+  assert.equal(report.counts.total, rows.length);
+  assert.equal(report.counts.unassigned, 1);
+  assert.equal(report.counts.unresolvedAssignment, 3);
+  assert.equal(report.counts.running, 1);
+  assert.equal(report.counts.attributedRunning, 0);
+  assert.deepEqual(report.sources, [
+    { system: 'jb_app', checkedAt: source.asOf, status: 'ready' },
+    { system: 'notion', checkedAt: null, status: 'not_connected' },
+    { system: 'naver_works', checkedAt: null, status: 'not_connected' },
+  ]);
+  assert.equal(report.summaryInput.kind, 'rule_based');
+  assert.equal(report.summaryInput.timeBasis, '업무 상태 기준 시간');
+});

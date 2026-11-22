@@ -1,4 +1,4 @@
-import { summarizeDailyTaskTime } from './daily-task-time.mjs';
+import { summarizeDailyTaskRows, summarizeDailyTaskTime } from './daily-task-time.mjs';
 
 const statuses = new Set(['planned', 'in_progress', 'hold', 'completed']);
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
@@ -122,12 +122,10 @@ function reportAssignee(periods, from, cutoff) {
  * The authorization marker describes that input contract; it does not authenticate
  * a caller or make a client-supplied envelope trustworthy.
  */
-export function adaptDailyTaskSource({ date, cutoffTime, employeeId, source, assignmentLedger }) {
-  if (!validId(employeeId)) throw new TypeError('Expected a canonical employee UUID');
-  const emptyReport = summarizeDailyTaskTime({ date, cutoffTime, employeeId, tasks: [], history: [] });
-  const { start, cutoff } = emptyReport;
+function prepareDailyTaskSource({ date, cutoffTime, source, assignmentLedger }) {
+  const { start, cutoff } = summarizeDailyTaskRows({ date, cutoffTime, tasks: [], history: [] });
 
-  if (source?.status === 'forbidden' || source?.status === 'error') {
+  if (['forbidden', 'error', 'incompatible', 'incomplete'].includes(source?.status)) {
     return failure(source.status, 'source_read_failed');
   }
   if (source?.status !== 'ok' || source.authorization !== 'verified') {
@@ -166,15 +164,108 @@ export function adaptDailyTaskSource({ date, cutoffTime, employeeId, source, ass
     id, task_id, changed_by, previous_status, new_status, changed_at,
   }));
   const coverageByTask = new Map(candidates.map(({ id, created_at }) => [id, { from: created_at, through: cutoff }]));
-  const report = summarizeDailyTaskTime({ date, cutoffTime, employeeId, tasks: candidates, history: events, coverageByTask });
-  const describe = row => ({ ...row, ...ownership.get(row.taskId) });
-  report.tasks = report.tasks.map(describe);
-  report.unverifiedAssignment = report.unverifiedAssignment.map(describe);
   return {
+    input: { date, cutoffTime, tasks: candidates, history: events, coverageByTask },
+    originals: tasks.rows, ownership,
     status: ids.size === 0 ? 'empty' : 'ready',
     attribution: ids.size === 0 ? 'not_applicable' :
       candidates.every(row => row.assignmentVerified) ? 'verified' : 'unverified',
     unassignedTaskCount: tasks.rows.filter(row => row.assignee_id === null).length,
-    report,
+  };
+}
+
+export function adaptDailyTaskSource({ employeeId, ...request }) {
+  if (!validId(employeeId)) throw new TypeError('Expected a canonical employee UUID');
+  const prepared = prepareDailyTaskSource(request);
+  if (!prepared.input) return prepared;
+  const { input, ownership, originals, ...metadata } = prepared;
+  const report = summarizeDailyTaskTime({ ...input, employeeId });
+  const describe = row => ({ ...row, ...ownership.get(row.taskId) });
+  report.tasks = report.tasks.map(describe);
+  report.unverifiedAssignment = report.unverifiedAssignment.map(describe);
+  return { ...metadata, report };
+}
+
+export const presentationContract = 'jb-report-presentation-v1';
+
+export function hasDailyReportPresentationColumns(schema) {
+  return [schema?.jb_employees?.name, schema?.jb_tasks?.title]
+    .every(type => ['text!', 'text?', 'varchar!', 'varchar?'].includes(type));
+}
+
+export function adaptIntegratedDailyTaskSource(request) {
+  const prepared = prepareDailyTaskSource(request);
+  if (!prepared.input) return prepared;
+  const { source, presentation } = request;
+  if (presentation?.contract !== presentationContract ||
+      !hasDailyReportPresentationColumns(source.schema)) {
+    return failure('incompatible', 'presentation_contract_mismatch');
+  }
+  const employees = readPages(presentation.employees, source.snapshotId, row => row.id,
+    row => row && validId(row.id) && (row.name === null || typeof row.name === 'string'));
+  if (!employees.rows) return employees;
+  if (prepared.originals.some(row => row.title !== null && typeof row.title !== 'string')) {
+    return failure('incompatible', 'invalid_title');
+  }
+
+  const reports = employees.rows.map(({ id, name }) => ({
+    employeeId: id, name: name || '이름 미확인', tasks: [], unverifiedAssignment: [],
+  }));
+  const people = new Map(reports.map(person => [person.employeeId, person]));
+  const titles = new Map(prepared.originals.map(row => [row.id, row.title]));
+  const { rows, ...window } = summarizeDailyTaskRows(prepared.input);
+  const unassigned = [];
+  let closedBefore = 0;
+  let outsideDailyScope = 0;
+  let total = 0;
+  let completed = 0;
+  let running = 0;
+  let attributedCompleted = 0;
+  let attributedRunning = 0;
+  let needsReview = 0;
+  let unresolvedAssignment = 0;
+  for (const row of rows) {
+    const related = row.registeredToday !== false || row.workedToday !== false ||
+      row.completedToday !== false || row.transitions.length > 0 ||
+      row.knownStateMs.hold > 0 || row.issues.length > 0;
+    if (!related) {
+      if (row.stateAtCutoff === 'completed') closedBefore++;
+      else outsideDailyScope++;
+      continue;
+    }
+    const assignment = prepared.ownership.get(row.taskId);
+    const person = people.get(row.assigneeId);
+    const verified = row.assignmentVerified && Boolean(person);
+    const item = { ...row, ...assignment, assignmentVerified: verified,
+      title: titles.get(row.taskId) || '제목 없음', sourceSystem: 'jb_app', sourceTaskId: row.taskId };
+    if (verified) person.tasks.push(item);
+    else if (person) person.unverifiedAssignment.push(item);
+    else unassigned.push(item);
+    total++;
+    if (row.completedToday === true) {
+      completed++;
+      if (verified) attributedCompleted++;
+    }
+    if (row.stateAtCutoff === 'in_progress') {
+      running++;
+      if (verified) attributedRunning++;
+    }
+    if (!verified) unresolvedAssignment++;
+    if (!verified || row.unknownMs > 0 || row.issues.length > 0) needsReview++;
+  }
+
+  const counts = { total, completed, running, attributedCompleted, attributedRunning, needsReview, unresolvedAssignment,
+    unassigned: unassigned.length, closedBefore, outsideDailyScope };
+  return {
+    status: prepared.status,
+    report: {
+      ...window, contract: 'jb-integrated-daily-report-v1', employees: reports, unassigned, counts,
+      sources: [
+        { system: 'jb_app', checkedAt: source.asOf, status: prepared.status },
+        { system: 'notion', checkedAt: null, status: 'not_connected' },
+        { system: 'naver_works', checkedAt: null, status: 'not_connected' },
+      ],
+      summaryInput: { kind: 'rule_based', sourceSystem: 'jb_app', timeBasis: window.timeBasis, counts },
+    },
   };
 }

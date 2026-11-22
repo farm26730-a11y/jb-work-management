@@ -1,3 +1,6 @@
+import { adaptIntegratedDailyTaskSource, presentationContract } from './daily-task-adapter.mjs';
+import { summarizeDailyTaskRows } from './daily-task-time.mjs';
+
 // Synthetic report inputs only. No application's credentials or production records.
 const id = n => '00000000-0000-0000-0000-' + String(n).padStart(12, '0');
 const time = (value, day = '22') =>
@@ -19,12 +22,15 @@ const tasks = [
   { id: id(14), assignee_id: b, title: '관수 상태 관찰', created_at: time('21:30', '21'), status: 'completed' },
   { id: id(15), assignee_id: b, title: '입고 준비 목록 점검', created_at: time('12:00', '21'), status: 'completed' },
   { id: id(16), assignee_id: b, title: '작업대 재배치 검토', created_at: time('15:00'), status: 'planned' },
+  { id: id(17), assignee_id: null, title: '분갈이 자재 점검', created_at: time('14:30'), status: 'planned' },
+  { id: id(18), assignee_id: null, title: '전일에 종료한 업무', created_at: time('08:00', '21'), status: 'completed' },
 ];
 export const titles = new Map(tasks.map(task => [task.id, task.title]));
 
 const cutoff = time(cutoffTime);
 const afterCutoff = time('19:00');
-const history = [
+const allHistory = [
+  [18, time('09:00', '21'), 'planned', 'completed'],
   [14, time('23:30', '21'), 'planned', 'in_progress'],
   [11, time('09:00'), 'planned', 'in_progress'],
   [11, time('10:00'), 'in_progress', 'hold'],
@@ -36,8 +42,8 @@ const history = [
   [12, time('13:00'), 'planned', 'completed'],
   [14, afterCutoff, 'in_progress', 'completed'],
 ].map(([task, changed_at, previous_status, new_status, changed_by = null], index) =>
-  ({ id: id(100 + index), task_id: id(task), changed_at, previous_status, new_status, changed_by }))
-  .filter(event => event.changed_at <= cutoff);
+  ({ id: id(100 + index), task_id: id(task), changed_at, previous_status, new_status, changed_by }));
+const history = allHistory.filter(event => event.changed_at <= cutoff);
 
 const snapshotId = 'synthetic-preview';
 function dataset(rows) {
@@ -48,12 +54,12 @@ export const source = {
   contract: 'jb-task-source-v1', scope: 'all_tasks_created_through_cutoff_with_history',
   taskStatuses: ['planned', 'in_progress', 'hold', 'completed'],
   schema: {
-    jb_tasks: { id: 'uuid!', assignee_id: 'uuid?', created_at: 'timestamptz!', status: 'text!' },
+    jb_tasks: { id: 'uuid!', assignee_id: 'uuid?', created_at: 'timestamptz!', status: 'text!', title: 'text!' },
     jb_task_history: {
       id: 'uuid!', task_id: 'uuid!', changed_by: 'uuid?', previous_status: 'text?',
       new_status: 'text!', changed_at: 'timestamptz!',
     },
-    jb_employees: { id: 'uuid!' },
+    jb_employees: { id: 'uuid!', name: 'text!' },
   },
   tasks: dataset(tasks),
   history: dataset(history),
@@ -67,3 +73,31 @@ export const assignmentLedger = { snapshotId, periods: [
   { taskId: id(13), employeeId: a, from: tasks[2].created_at, to: null },
   { taskId: id(15), employeeId: b, from: tasks[4].created_at, to: null },
 ] };
+
+
+// The preview consumes the same response contract as the server, with no transport or credentials.
+export function loadSyntheticDailyReport({ date: reportDate, cutoffTime: reportTime }) {
+  const { cutoff: selectedCutoff } = summarizeDailyTaskRows({
+    date: reportDate, cutoffTime: reportTime, tasks: [], history: [],
+  });
+  const defaultWindow = selectedCutoff === cutoff;
+  const selected = defaultWindow || source.status !== 'ok' ? source : {
+    ...source, cutoff: selectedCutoff,
+    tasks: dataset(tasks.filter(task => task.created_at <= selectedCutoff)),
+    history: dataset(allHistory.filter(event => event.changed_at <= selectedCutoff)),
+  };
+  const taskPages = selected.tasks?.pages;
+  const reportSource = taskPages ? {
+    ...selected, tasks: { ...selected.tasks, pages: taskPages.map(page => ({
+      ...page, rows: page.rows?.map(row => ({ ...row, title: titles.get(row.id) ?? row.title })),
+    })) },
+  } : selected;
+  const ledger = defaultWindow ? assignmentLedger : {
+    ...assignmentLedger, periods: assignmentLedger.periods.filter(period =>
+      tasks.some(task => task.id === period.taskId && task.created_at <= selectedCutoff)),
+  };
+  return adaptIntegratedDailyTaskSource({
+    date: reportDate, cutoffTime: reportTime, source: reportSource, assignmentLedger: ledger,
+    presentation: { contract: presentationContract, employees: dataset(staff) },
+  });
+}

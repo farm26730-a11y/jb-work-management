@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSupabaseTokenVerifier, jbDevProject } from './daily-report-auth.mjs';
-import { createJbDevDailyReportReader } from './daily-report-jb-dev.mjs';
+import { createJbDevDailyReportReader, createJbDevIntegratedDailyReportReader } from './daily-report-jb-dev.mjs';
 import { date, cutoffTime, source, staff } from './daily-report-preview-fixture.mjs';
 
 const id = n => '00000000-0000-0000-0000-' + String(n).padStart(12, '0');
@@ -69,8 +69,9 @@ test('missing config is not implemented; rejecting foreign projects and insecure
 });
 
 function mockReader({ role = 'owner', active = true, duplicate = false, countDelta = 0, filtered = false, roleBlocked = false, visibilityComplete = !filtered,
-  pgError, connectError, tasks = source.tasks.pages[0].rows, history = source.history.pages[0].rows, brokenSchema = false } = {}) {
+  pgError, connectError, integrated = false, missingTitleGrant = false, employees = staff, employeeCountDelta = 0, tasks = source.tasks.pages[0].rows, history = source.history.pages[0].rows, brokenSchema = false } = {}) {
   const calls = [];
+  let authRequests = 0;
   const schemaRows = Object.entries(source.schema).flatMap(([table_name, columns]) =>
     Object.entries(columns).map(([column_name, type]) => ({
       table_name, column_name, udt_name: type.slice(0, -1), is_nullable: type.endsWith('?') ? 'YES' : 'NO',
@@ -90,7 +91,8 @@ function mockReader({ role = 'owner', active = true, duplicate = false, countDel
         assert.match(sql, /has_column_privilege/);
         assert.match(sql, /jb_ai_report_full_read/);
         assert.match(sql, /NOT p.polpermissive/);
-        rows = visibilityComplete === undefined ? [] : [{ complete: visibilityComplete }];
+        if (integrated) assert.match(sql, /'name'[\s\S]*'title'/);
+        rows = visibilityComplete === undefined ? [] : [{ complete: visibilityComplete && !missingTitleGrant }];
       } else if (sql.includes('WHERE auth_user_id')) {
         assert.deepEqual(params, [authId]);
         const employee = { id: id(91), auth_user_id: authId, app_role: role, active };
@@ -104,7 +106,10 @@ function mockReader({ role = 'owner', active = true, duplicate = false, countDel
         rows = [{ expression: "(status = ANY (ARRAY['planned'::text, 'in_progress'::text, 'hold'::text, 'completed'::text]))" }];
       } else if (sql.includes('count(*)')) {
         assert.deepEqual(params, [source.cutoff]);
-        rows = [{ task_count: String(tasks.length), history_count: String(history.length + countDelta) }];
+        rows = [{ task_count: String(tasks.length), history_count: String(history.length + countDelta), employee_count: String(employees.length + employeeCountDelta) }];
+      } else if (sql.includes('ORDER BY e.id')) {
+        const [after, limit] = params;
+        rows = employees.filter(row => after === null || row.id > after).slice(0, limit);
       } else if (sql.includes('ORDER BY t.id')) {
         const [cutoff, after, limit] = params;
         assert.equal(cutoff, source.cutoff);
@@ -128,10 +133,14 @@ function mockReader({ role = 'owner', active = true, duplicate = false, countDel
       return client;
     }
   }
-  const reader = createJbDevDailyReportReader(env, {
-    Pool: MockPool, pageSize: 2, fetchUser: async () => Response.json({ id: authId }),
+  const factory = integrated ? createJbDevIntegratedDailyReportReader : createJbDevDailyReportReader;
+  const reader = factory(env, {
+    Pool: MockPool, pageSize: 2, fetchUser: async () => {
+      authRequests++;
+      return Response.json({ id: authId });
+    },
   });
-  return { calls, reader };
+  return { calls, reader, authRequests: () => authRequests };
 }
 
 test('one connection and one read-only repeatable snapshot contain both counts and all pages', async () => {
@@ -144,7 +153,7 @@ test('one connection and one read-only repeatable snapshot contain both counts a
   assert.deepEqual(calls.slice(0, 3).map(call => call.sql),
     ['connect', 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY', "SET LOCAL statement_timeout = '15s'"]);
   assert.equal(calls.filter(call => call.sql.includes('count(*)')).length, 1);
-  assert.equal(calls.filter(call => call.sql.includes('ORDER BY t.id')).length, 4);
+  assert.equal(calls.filter(call => call.sql.includes('ORDER BY t.id')).length, 5);
   assert.equal(calls.filter(call => call.sql.includes('ORDER BY h.changed_at, h.id')).length, 5);
   assert.deepEqual(calls.slice(-2).map(call => call.sql), ['COMMIT', 'release']);
   assert.ok(calls.every(({ sql }) => !/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/i.test(sql.replace(/'[^']*'/g, ''))));
@@ -243,5 +252,36 @@ test('DB login and TLS certificate failures are distinguishable without exposing
     const { reader, calls } = mockReader({ connectError: Object.assign(new Error('synthetic secret details'), { code }) });
     assert.deepEqual(await reader(request), { status, report: null });
     assert.deepEqual(calls, [{ sql: 'connect' }]);
+  }
+});
+
+
+test('whole staff report uses one owner verification, one transaction, one set of paged queries', async () => {
+  const { reader, calls, authRequests } = mockReader({ integrated: true });
+  const result = await reader({ ...request, employeeId: undefined });
+  assert.equal(result.status, 'ready');
+  assert.equal(authRequests(), 1);
+  assert.equal(calls.filter(call => call.sql === 'connect').length, 1);
+  assert.equal(calls.filter(call => call.sql.includes('count(*)')).length, 1);
+  assert.equal(calls.filter(call => call.sql.includes('ORDER BY e.id')).length, 2);
+  assert.ok(!calls.some(call => call.sql.includes('SELECT id FROM public.jb_employees WHERE id')));
+  assert.deepEqual(result.report.employees.map(person => person.name), staff.map(person => person.name));
+  assert.equal(result.report.unassigned.length, 1);
+  assert.equal(result.report.counts.closedBefore, 1);
+  assert.equal(result.report.counts.total, 7);
+  assert.equal(result.report.counts.unresolvedAssignment, 7);
+  assert.ok(result.report.employees.every(person => person.tasks.length === 0));
+  assert.deepEqual(calls.slice(-2).map(call => call.sql), ['COMMIT', 'release']);
+});
+
+test('whole report denies non-owner and refuses missing name/title grants or incomplete directory', async () => {
+  for (const [options, status] of [
+    [{ role: 'staff' }, 'forbidden'], [{ missingTitleGrant: true }, 'forbidden'],
+    [{ employeeCountDelta: 1 }, 'incomplete'], [{ countDelta: 1 }, 'incomplete'],
+  ]) {
+    const { reader, calls } = mockReader({ integrated: true, ...options });
+    assert.equal((await reader(request)).status, status);
+    if (status === 'forbidden') assert.ok(!calls.some(call => call.sql.includes('count(*)')));
+    assert.deepEqual(calls.slice(-2).map(call => call.sql), ['ROLLBACK', 'release']);
   }
 });

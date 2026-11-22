@@ -1,5 +1,5 @@
-import { adaptDailyTaskSource } from './daily-task-adapter.mjs';
-import { summarizeDailyTaskTime } from './daily-task-time.mjs';
+import { adaptDailyTaskSource, adaptIntegratedDailyTaskSource } from './daily-task-adapter.mjs';
+import { summarizeDailyTaskRows } from './daily-task-time.mjs';
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const isUuid = value => typeof value === 'string' && uuid.test(value);
@@ -10,7 +10,7 @@ const unavailable = status => ({ status, report: null });
  * withReadOnlySnapshot must run its callback within one actual read-only,
  * consistent transaction. No production implementation is supplied here.
  */
-export function createDailyReportReader({ verifyAccessToken, withReadOnlySnapshot } = {}) {
+export function createDailyReportReader({ verifyAccessToken, withReadOnlySnapshot, integrated = false } = {}) {
   return async function readDailyReport({ session, employeeId, date, cutoffTime } = {}) {
     if (typeof verifyAccessToken !== 'function' || typeof withReadOnlySnapshot !== 'function') {
       return unavailable('not_implemented');
@@ -22,10 +22,10 @@ export function createDailyReportReader({ verifyAccessToken, withReadOnlySnapsho
       if (!isUuid(identity?.userId)) return unavailable('unauthenticated');
       const authUserId = identity.userId;
 
-      if (!isUuid(employeeId)) return unavailable('invalid_request');
+      if (!integrated && !isUuid(employeeId)) return unavailable('invalid_request');
       let window;
       try {
-        const { start, cutoff } = summarizeDailyTaskTime({ date, cutoffTime, employeeId, tasks: [], history: [] });
+        const { start, cutoff } = summarizeDailyTaskRows({ date, cutoffTime, tasks: [], history: [] });
         window = Object.freeze({ start, cutoff });
       } catch (error) {
         if (error instanceof RangeError) return unavailable('invalid_request');
@@ -41,6 +41,10 @@ export function createDailyReportReader({ verifyAccessToken, withReadOnlySnapsho
           return unavailable('forbidden');
         }
 
+        if (integrated) {
+          const { source, assignmentLedger, presentation } = await transaction.readReportSource(window);
+          return adaptIntegratedDailyTaskSource({ date, cutoffTime, source, assignmentLedger, presentation });
+        }
         const target = await transaction.findEmployeeById(employeeId);
         if (target === null) return unavailable('not_found');
         if (target?.id !== employeeId) return unavailable('error');

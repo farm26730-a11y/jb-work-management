@@ -123,3 +123,33 @@ DB 연결을 사용하지 않는다. 정책 설계 후보는 승인된 읽기 �
 ```sh
 node --test JB_*/daily-{task-time,task-adapter,report-preview,report-server,report-jb-dev}.test.mjs
 ```
+
+## 전 직원 통합보고
+
+`createJbDevIntegratedDailyReportReader()`는 호출 건당 토큰 검증 한 번과
+읽기 전용 스냅샷 한 번을 사용한다. 활성 owner 확인 후 직원 디렉터리,
+업무, 이력의 독립 건수와 전체 페이지를 같은 트랜잭션에서 읽는다.
+개별 조회를 반복하지 않으며 기존 개인 보고 인터페이스도 유지한다.
+전 직원 모드에는 기존 권한 외에 `jb_employees.name`과
+`jb_tasks.title`의 열 SELECT가 필요하다. 두 필드의 문자열 타입과
+권한을 검증한다. 권한 부여나 기존 정책 변경은 이 작업에 포함되지 않는다.
+
+입력 확장 `jb-report-presentation-v1`은 기존 업무 페이지에 title을
+포함하고, 같은 스냅샷의 직원 ID와 표시명 페이지를 추가한다. 합계 전에
+직원 페이지와 원본 범위 전체를 검사한다. 확정 담당, 현재 담당만 확인,
+담당 미지정·직원 정보 미확인 업무는 서로 겹치지 않게 배치한다. 기존
+완료 업무와 당일 관련이 없는 업무는 일일 합계에서 분리한다. 전체 업무의
+상태 건수와 확정 담당 기준 건수는 별도 필드다. 시간 기준은 업무 상태다.
+
+출력 `jb-integrated-daily-report-v1`의 `sources`는 각 원본 시스템의
+`system`, `checkedAt`(UTC 또는 null), `status`를 갖는다. 업무 원본
+식별자는 `(sourceSystem, sourceTaskId)`의 조합이다. Notion과
+NAVER WORKS는 `not_connected`이며 현재 업무·시간·합계에 기여하지
+않는다. 추후 추가될 원본은 별도 조회 상태와 범위를 유지하고, 원본 간
+동일 업무라는 검증 근거와 합산 계약을 승인하기 전에는 원본별 집계를
+별도로 유지한다. `summaryInput`은 JB 원본 집계와 시간 기준만 담은
+구조화 입력이다. 요약은 검증용 규칙 기반이며 AI 호출은 없다.
+
+개발용 미리보기는 로컬 합성 응답으로만 이 출력 계약을 렌더링한다.
+승인된 서버 연결은 서버 측 호출 결과를 전달하는 별도 경로이며 현재
+브라우저에서 선택하거나 호출할 네트워크 연결과 HTTP API는 없다.

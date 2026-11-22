@@ -1,5 +1,5 @@
 import { jbDevProject } from './daily-report-auth.mjs';
-import { isDailyTaskSourceSchemaCompatible } from './daily-task-adapter.mjs';
+import { hasDailyReportPresentationColumns, isDailyTaskSourceSchemaCompatible, presentationContract } from './daily-task-adapter.mjs';
 
 const blockedRoles = [
   'postgres', 'supabase_admin', 'supabase_read_only_user', 'service_role',
@@ -19,10 +19,10 @@ const checks = `SELECT pg_catalog.pg_get_expr(c.conbin, c.conrelid) AS expressio
     AND c.contype = 'c' AND c.convalidated AND a.attnum = ANY(c.conkey)`;
 
 // A dedicated SELECT policy can prove full visibility without bypassing RLS.
-const visibilityQuery = `WITH required(name, columns) AS (
+const visibilityQuery = integrated => `WITH required(name, columns) AS (
   VALUES
-    ('public.jb_employees', ARRAY['id', 'auth_user_id', 'active', 'app_role']),
-    ('public.jb_tasks', ARRAY['id', 'assignee_id', 'created_at', 'status']),
+    ('public.jb_employees', ARRAY['id', 'auth_user_id', 'active', 'app_role'${integrated ? ", 'name'" : ''}]),
+    ('public.jb_tasks', ARRAY['id', 'assignee_id', 'created_at', 'status'${integrated ? ", 'title'" : ''}]),
     ('public.jb_task_history', ARRAY['id', 'task_id', 'changed_by', 'previous_status', 'new_status', 'changed_at'])
 ),
 reader AS (
@@ -88,13 +88,13 @@ function connectionForDev(connectionString) {
   return url.href;
 }
 
-async function pages(client, { sql, count, cutoff, snapshotId, pageSize, cursorOf, cursorBindings }) {
+async function pages(client, { sql, count, snapshotId, pageSize, cursorOf, bindings }) {
   if (!Number.isSafeInteger(count) || count < 0) throw new Error('Invalid report row count');
   const result = [];
   let after = null;
   let received = 0;
   while (true) {
-    const { rows } = await client.query(sql, [cutoff, ...cursorBindings(after), pageSize]);
+    const { rows } = await client.query(sql, bindings(after));
     received += rows.length;
     const done = rows.length < pageSize;
     result.push({ status: 'ok', snapshotId, after, done, rows });
@@ -105,7 +105,7 @@ async function pages(client, { sql, count, cutoff, snapshotId, pageSize, cursorO
   }
 }
 
-const taskPage = `SELECT t.id, t.assignee_id, t.status, ${utc('t.created_at')} AS created_at
+const taskPage = integrated => `SELECT t.id, t.assignee_id, t.status${integrated ? ", t.title" : ""}, ${utc('t.created_at')} AS created_at
   ${fromTasks}
   AND ($2::uuid IS NULL OR t.id > $2::uuid)
   ORDER BY t.id LIMIT $3::int`;
@@ -115,7 +115,11 @@ const historyPage = `SELECT h.id, h.task_id, h.changed_by, h.previous_status, h.
   AND ($2::timestamptz IS NULL OR (h.changed_at, h.id) > ($2::timestamptz, $3::uuid))
   ORDER BY h.changed_at, h.id LIMIT $4::int`;
 
-async function readSource(client, { cutoff }, { snapshot_id: snapshotId, as_of: asOf }, pageSize) {
+const employeePage = `SELECT e.id, e.name FROM public.jb_employees e
+  WHERE $1::uuid IS NULL OR e.id > $1::uuid
+  ORDER BY e.id LIMIT $2::int`;
+
+async function readSource(client, { cutoff }, { snapshot_id: snapshotId, as_of: asOf }, pageSize, integrated) {
   const schema = Object.create(null);
   for (const row of (await client.query(catalog)).rows) {
     schema[row.table_name] ??= Object.create(null);
@@ -128,22 +132,31 @@ async function readSource(client, { cutoff }, { snapshot_id: snapshotId, as_of: 
   };
   if (!isDailyTaskSourceSchemaCompatible(schema, taskStatuses) || cutoff > asOf) return { source };
 
+  if (integrated && !hasDailyReportPresentationColumns(schema)) {
+    return { source: { ...source, status: 'incompatible' } };
+  }
+
   const { rows: [counts] } = await client.query(`SELECT
     (SELECT count(*) ${fromTasks}) AS task_count,
-    (SELECT count(*) ${fromHistory}) AS history_count`, [cutoff]);
+    (SELECT count(*) ${fromHistory}) AS history_count${integrated ? ", (SELECT count(*) FROM public.jb_employees) AS employee_count" : ""}`, [cutoff]);
   source.tasks = await pages(client, {
-    sql: taskPage, count: Number(counts.task_count), cutoff, snapshotId, pageSize, cursorOf: row => row.id,
-    cursorBindings: after => [after],
+    sql: taskPage(integrated), count: Number(counts.task_count), snapshotId, pageSize, cursorOf: row => row.id,
+    bindings: after => [cutoff, after, pageSize],
   });
   source.history = await pages(client, {
-    sql: historyPage, count: Number(counts.history_count), cutoff, snapshotId, pageSize,
+    sql: historyPage, count: Number(counts.history_count), snapshotId, pageSize,
     cursorOf: row => row.changed_at + '/' + row.id,
-    cursorBindings: after => after === null ? [null, null] : after.split('/'),
+    bindings: after => [cutoff, ...(after === null ? [null, null] : after.split('/')), pageSize],
   });
-  return { source };
+  if (!integrated) return { source };
+  const employees = await pages(client, {
+    sql: employeePage, count: Number(counts.employee_count), snapshotId, pageSize,
+    cursorOf: row => row.id, bindings: after => [after, pageSize],
+  });
+  return { source, presentation: { contract: presentationContract, employees } };
 }
 
-export function createPostgresSnapshot({ connectionString, Pool, pageSize = 500 } = {}) {
+export function createPostgresSnapshot({ connectionString, Pool, pageSize = 500, integrated = false } = {}) {
   if (!connectionString) return undefined;
   const dsn = connectionForDev(connectionString);
   if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 1000) throw new RangeError('Invalid report page size');
@@ -194,7 +207,7 @@ export function createPostgresSnapshot({ connectionString, Pool, pageSize = 500 
         await client.query('ROLLBACK');
         return { status: 'forbidden', report: null };
       }
-      const { rows: [visibility] } = await client.query(visibilityQuery);
+      const { rows: [visibility] } = await client.query(visibilityQuery(integrated));
       if (visibility?.complete !== true) {
         await client.query('ROLLBACK');
         return { status: 'forbidden', report: null };
@@ -205,7 +218,7 @@ export function createPostgresSnapshot({ connectionString, Pool, pageSize = 500 
         findEmployeeById: async id => (await client.query(
           'SELECT id FROM public.jb_employees WHERE id = $1::uuid', [id],
         )).rows[0] ?? null,
-        readReportSource: window => readSource(client, window, snapshot, pageSize),
+        readReportSource: window => readSource(client, window, snapshot, pageSize, integrated),
       });
       await client.query(['ready', 'empty'].includes(result?.status) ? 'COMMIT' : 'ROLLBACK');
       return result;
