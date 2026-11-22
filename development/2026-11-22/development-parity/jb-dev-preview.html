@@ -1596,7 +1596,7 @@ function clearTaskDraft(){
  const title=shell.querySelector('#srvTaskTitle');
  if(title)title.focus();
 }
-nction updateAssignees(){
+function updateAssignees(){
  const select=shell.querySelector('#srvTaskAssignee'),dept=shell.querySelector('#srvTaskDepartment');if(!select||!dept)return;
  const people=jbStaffDisplaySorted(profile.app_role==='staff'?records.employees.filter(e=>e.id===profile.id&&e.department_id===dept.value):records.employees.filter(e=>e.department_id===dept.value));
  select.innerHTML=people.length?people.map(e=>`<option value="${safe(e.id)}" ${e.id===profile.id?'selected':''}>${safe(e.name)} ${safe(e.position||'')}</option>`).join(''):'<option value="">부서에 등록된 직원 없음</option>';
