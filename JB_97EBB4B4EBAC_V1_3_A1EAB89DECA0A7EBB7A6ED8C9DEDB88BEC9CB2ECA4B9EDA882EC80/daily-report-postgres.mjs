@@ -18,6 +18,48 @@ const checks = `SELECT pg_catalog.pg_get_expr(c.conbin, c.conrelid) AS expressio
   WHERE c.conrelid = pg_catalog.to_regclass('public.jb_tasks')
     AND c.contype = 'c' AND c.convalidated AND a.attnum = ANY(c.conkey)`;
 
+// A dedicated SELECT policy can prove full visibility without bypassing RLS.
+const visibilityQuery = `WITH required(name, columns) AS (
+  VALUES
+    ('public.jb_employees', ARRAY['id', 'auth_user_id', 'active', 'app_role']),
+    ('public.jb_tasks', ARRAY['id', 'assignee_id', 'created_at', 'status']),
+    ('public.jb_task_history', ARRAY['id', 'task_id', 'changed_by', 'previous_status', 'new_status', 'changed_at'])
+),
+reader AS (
+  SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user
+)
+SELECT coalesce(bool_and(
+  c.relkind = 'r'
+  AND has_schema_privilege('public', 'USAGE')
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhparent = c.oid)
+  AND NOT EXISTS (
+    SELECT 1 FROM unnest(required.columns) AS cols(name)
+    LEFT JOIN pg_catalog.pg_attribute a
+      ON a.attrelid = c.oid AND a.attname = cols.name AND a.attnum > 0 AND NOT a.attisdropped
+    WHERE a.attnum IS NULL OR has_column_privilege(c.oid, a.attnum, 'SELECT') IS NOT TRUE
+  )
+  AND (
+    NOT c.relrowsecurity
+    OR (
+      EXISTS (
+        SELECT 1 FROM pg_catalog.pg_policy p
+        WHERE p.polrelid = c.oid AND p.polname = 'jb_ai_report_full_read'
+          AND p.polpermissive AND p.polcmd = 'r' AND p.polroles = ARRAY[reader.oid]
+          AND pg_catalog.pg_get_expr(p.polqual, p.polrelid) = 'true'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_policy p
+        CROSS JOIN LATERAL unnest(p.polroles) AS roles(oid)
+        WHERE p.polrelid = c.oid AND NOT p.polpermissive AND p.polcmd IN ('r', '*')
+          AND CASE WHEN roles.oid = 0 THEN true ELSE pg_catalog.pg_has_role(roles.oid, 'USAGE') END
+      )
+    )
+  )
+  IS TRUE
+), false) AS complete
+FROM required CROSS JOIN reader
+LEFT JOIN pg_catalog.pg_class c ON c.oid = pg_catalog.to_regclass(required.name)`;
+
 function statusValues(rows) {
   // Accept the deployed text ANY(ARRAY[...]) constraint; other shapes need contract review.
   const expression = rows.length === 1 ? rows[0].expression : '';
@@ -37,9 +79,10 @@ function connectionForDev(connectionString) {
   const pooler = /^[a-z0-9-]+\.pooler\.supabase\.com$/.test(url.hostname) &&
     username.endsWith('.' + jbDevProject);
   // Disallow DSN option overrides for host, user, TLS and startup parameters.
+  if (url.search !== '?sslmode=verify-full') throw new Error('Report database TLS configuration requires sslmode=verify-full');
   if (!['postgres:', 'postgresql:'].includes(url.protocol) || (!direct && !pooler) ||
       !username || blockedRoles.includes(username.split('.')[0]) || url.pathname !== '/postgres' ||
-      url.hash || url.search !== '?sslmode=verify-full') {
+      url.hash) {
     throw new Error('Expected an approved JB-DEV database DSN with TLS verification');
   }
   return url.href;
@@ -110,7 +153,18 @@ export function createPostgresSnapshot({ connectionString, Pool, pageSize = 500 
       pool ??= Promise.resolve(Pool ?? import('pg').then(module => module.Pool))
         .then(Driver => new Driver({ connectionString: dsn, connectionTimeoutMillis: 5000 }));
     }
-    const client = await (await pool).connect();
+    let client;
+    try {
+      client = await (await pool).connect();
+    } catch (error) {
+      if (['28000', '28P01'].includes(error?.code)) return { status: 'database_auth_error', report: null };
+      if (['CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID', 'ERR_TLS_CERT_ALTNAME_INVALID',
+        'SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT',
+        'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY'].includes(error?.code)) {
+        return { status: 'database_tls_error', report: null };
+      }
+      throw new Error('Report database connection failed');
+    }
     let discard = false;
     try {
       await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -135,12 +189,13 @@ export function createPostgresSnapshot({ connectionString, Pool, pageSize = 500 
               OR pg_catalog.has_any_column_privilege(pg_catalog.to_regclass(t.name),
                 'INSERT, UPDATE, REFERENCES')
           )
-        ) AS role_blocked,
-        EXISTS (
-          SELECT 1 FROM (VALUES ('public.jb_employees'), ('public.jb_tasks'), ('public.jb_task_history')) AS t(name)
-          WHERE pg_catalog.row_security_active(pg_catalog.to_regclass(t.name))
-        ) AS filtered`, [blockedRoles]);
-      if (snapshot?.role_blocked !== false || snapshot.filtered !== false) {
+        ) AS role_blocked`, [blockedRoles]);
+      if (snapshot?.role_blocked !== false) {
+        await client.query('ROLLBACK');
+        return { status: 'forbidden', report: null };
+      }
+      const { rows: [visibility] } = await client.query(visibilityQuery);
+      if (visibility?.complete !== true) {
         await client.query('ROLLBACK');
         return { status: 'forbidden', report: null };
       }

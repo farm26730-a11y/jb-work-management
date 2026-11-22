@@ -61,14 +61,15 @@ test('missing config is not implemented; rejecting foreign projects and insecure
   assert.throws(() => createJbDevDailyReportReader({ ...env, JB_REPORT_SUPABASE_URL: 'https://other.supabase.co' }), /Auth project/);
   for (const dsn of [
     env.JB_REPORT_DATABASE_URL.replace(jbDevProject, 'other'),
-    env.JB_REPORT_DATABASE_URL.replace('verify-full', 'disable'),
-    env.JB_REPORT_DATABASE_URL + '&host=other',
     env.JB_REPORT_DATABASE_URL.replace('synthetic_reader', 'postgres'),
   ]) assert.throws(() => createJbDevDailyReportReader({ ...env, JB_REPORT_DATABASE_URL: dsn }), /database DSN/);
+  for (const dsn of [
+    env.JB_REPORT_DATABASE_URL.replace('verify-full', 'disable'), env.JB_REPORT_DATABASE_URL + '&host=other',
+  ]) assert.throws(() => createJbDevDailyReportReader({ ...env, JB_REPORT_DATABASE_URL: dsn }), /TLS configuration/);
 });
 
-function mockReader({ role = 'owner', active = true, duplicate = false, countDelta = 0, filtered = false, roleBlocked = false,
-  pgError, tasks = source.tasks.pages[0].rows, history = source.history.pages[0].rows, brokenSchema = false } = {}) {
+function mockReader({ role = 'owner', active = true, duplicate = false, countDelta = 0, filtered = false, roleBlocked = false, visibilityComplete = !filtered,
+  pgError, connectError, tasks = source.tasks.pages[0].rows, history = source.history.pages[0].rows, brokenSchema = false } = {}) {
   const calls = [];
   const schemaRows = Object.entries(source.schema).flatMap(([table_name, columns]) =>
     Object.entries(columns).map(([column_name, type]) => ({
@@ -85,7 +86,12 @@ function mockReader({ role = 'owner', active = true, duplicate = false, countDel
         assert.ok(params[0].includes('supabase_read_only_user'));
         rows = [{ snapshot_id: '1:10:2,3', as_of: source.asOf, filtered, role_blocked: roleBlocked }];
       }
-      else if (sql.includes('WHERE auth_user_id')) {
+      else if (sql.includes('WITH required(name, columns)')) {
+        assert.match(sql, /has_column_privilege/);
+        assert.match(sql, /jb_ai_report_full_read/);
+        assert.match(sql, /NOT p.polpermissive/);
+        rows = visibilityComplete === undefined ? [] : [{ complete: visibilityComplete }];
+      } else if (sql.includes('WHERE auth_user_id')) {
         assert.deepEqual(params, [authId]);
         const employee = { id: id(91), auth_user_id: authId, app_role: role, active };
         rows = duplicate ? [employee, employee] : [employee];
@@ -116,7 +122,11 @@ function mockReader({ role = 'owner', active = true, duplicate = false, countDel
     release(discard) { calls.push({ sql: 'release', params: [discard] }); },
   };
   class MockPool {
-    async connect() { calls.push({ sql: 'connect' }); return client; }
+    async connect() {
+      calls.push({ sql: 'connect' });
+      if (connectError) throw connectError;
+      return client;
+    }
   }
   const reader = createJbDevDailyReportReader(env, {
     Pool: MockPool, pageSize: 2, fetchUser: async () => Response.json({ id: authId }),
@@ -206,5 +216,32 @@ test('overprivileged or unverified runtime role is rejected before any employee 
     assert.deepEqual(await reader(request), { status: 'forbidden', report: null });
     assert.ok(!calls.some(call => call.sql.includes('WHERE auth_user_id') || call.sql.includes('count(*)')));
     assert.deepEqual(calls.slice(-2).map(call => call.sql), ['ROLLBACK', 'release']);
+  }
+});
+
+test('RLS may stay active only when the visibility proof is complete', async () => {
+  const allowed = mockReader({ filtered: true, visibilityComplete: true });
+  assert.equal((await allowed.reader(request)).status, 'ready');
+  for (const visibilityComplete of [false, null]) {
+    const denied = mockReader({ filtered: true, visibilityComplete });
+    assert.deepEqual(await denied.reader(request), { status: 'forbidden', report: null });
+    assert.ok(!denied.calls.some(call => call.sql.includes('WHERE auth_user_id') || call.sql.includes('count(*)')));
+  }
+});
+
+test('invalid Auth never opens a DB transaction', async () => {
+  const { reader, calls } = mockReader();
+  assert.deepEqual(await reader({ ...request, session: token({ exp: 1 }) }), { status: 'unauthenticated', report: null });
+  assert.deepEqual(calls, []);
+});
+
+test('DB login and TLS certificate failures are distinguishable without exposing details', async () => {
+  for (const [code, status] of [
+    ['28P01', 'database_auth_error'], ['ERR_TLS_CERT_ALTNAME_INVALID', 'database_tls_error'],
+    ['ECONNREFUSED', 'error'],
+  ]) {
+    const { reader, calls } = mockReader({ connectError: Object.assign(new Error('synthetic secret details'), { code }) });
+    assert.deepEqual(await reader(request), { status, report: null });
+    assert.deepEqual(calls, [{ sql: 'connect' }]);
   }
 });
