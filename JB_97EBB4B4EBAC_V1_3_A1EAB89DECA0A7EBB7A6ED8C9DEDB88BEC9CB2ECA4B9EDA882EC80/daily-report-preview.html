@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JB 일일 업무보고 · 개발용 미리보기</title>
+<style>
+  :root {
+    color-scheme: light;
+    font-family: system-ui, "Noto Sans KR", sans-serif;
+    color: #192a25;
+    background: #fff;
+    --muted: #4b6057;
+    --green: #154f3d;
+    --line: #d9e4de;
+    --wash: #eff7f2;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  main { width: min(100%, 620px); margin-inline: auto; padding: 28px 18px 48px; }
+  header { padding-bottom: 20px; border-bottom: 2px solid var(--green); }
+  h1 { margin: 6px 0 8px; font-size: clamp(1.6rem, 7vw, 2.2rem); letter-spacing: -.055em; }
+  h2 { margin: 0 0 12px; font-size: 1.15rem; letter-spacing: -.035em; }
+  h3 { margin: 16px 0 4px; font-size: .93rem; }
+  p, ul { margin: 0; line-height: 1.6; }
+  p + p, li + li { margin-top: 5px; }
+  ul { padding-inline-start: 1.3em; }
+  .label { color: var(--green); font-weight: 750; font-size: .8rem; }
+  .muted, small { color: var(--muted); }
+  .muted { font-size: .875rem; }
+  section { margin-top: 24px; }
+  .panel { padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+  .summary { background: var(--wash); }
+  details { border: 1px solid var(--line); border-radius: 10px; }
+  details + details { margin-top: 8px; }
+  summary {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; min-height: 48px; padding: 10px 12px; font-weight: 700;
+    cursor: pointer; list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "＋"; flex: none; margin-inline-start: auto; color: var(--green); }
+  details[open] > summary::after { content: "−"; }
+  summary:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+  .inside { padding: 0 10px 10px; }
+  .work { background: #fbfdfb; }
+  .work summary { font-size: .92rem; }
+  .work summary small { font-size: .76rem; text-align: right; }
+  .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 10px; }
+  .facts div { padding: 8px 10px; border-radius: 7px; background: var(--wash); }
+  dt { color: var(--muted); font-size: .77rem; }
+  dd { margin: 4px 0 0; font-weight: 700; font-size: .9rem; overflow-wrap: anywhere; }
+  .detail { font-size: .86rem; }
+  .notice { color: #784400; }
+  .counts { margin: 0; }
+  .counts dd { font-size: 1.25rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="label">JB가든센터 · 개발용 미리보기</p>
+    <h1>일일 업무보고</h1>
+    <p class="muted">2026년 11월 22일 · 18:00 마감 (한국시간)</p>
+  </header>
+  <section aria-labelledby="summary-title">
+    <h2 id="summary-title">AI 종합요약</h2>
+    <div class="panel summary">
+      <p class="label">검증용 규칙 기반 요약 · 합성 데이터</p>
+      <p id="overview" role="status">미리보기를 불러오는 중입니다. 화면이 열리지 않으면 로컬 정적 서버로 실행하세요.</p>
+    </div>
+  </section>
+  <section aria-labelledby="staff-title">
+    <h2 id="staff-title">직원별 업무</h2>
+    <p class="muted">업무 상태 기준 시간입니다. 직원별 합계는 업무별 시간의 합입니다.</p>
+    <div id="employees"></div>
+  </section>
+  <section aria-labelledby="review-title">
+    <h2 id="review-title">AI 확인사항</h2>
+    <ul class="panel" id="review"></ul>
+  </section>
+  <section aria-labelledby="decision-title">
+    <h2 id="decision-title">대표님 결정사항</h2>
+    <p class="panel">등록된 결정 요청이 없습니다.</p>
+  </section>
+  <section aria-labelledby="counts-title">
+    <h2 id="counts-title">업무 현황</h2>
+    <dl class="facts counts" id="counts"></dl>
+  </section>
+</main>
+<script type="module">
+  import { summarizeDailyTaskTime } from './daily-task-time.mjs';
+
+  const date = '2026-11-22';
+  const cutoffTime = '18:00';
+  const day = (time, dayOfMonth = '22') => `2026-11-${dayOfMonth}T${time}:00+09:00`;
+  const staff = [
+    { id: 'sample-a', name: '합성 직원 가' },
+    { id: 'sample-b', name: '합성 직원 나' },
+  ];
+  const tasks = [
+    { id: 'a1', assignee_id: 'sample-a', title: '화분 진열 위치 점검', created_at: day('08:30'), assignmentVerified: true },
+    { id: 'a2', assignee_id: 'sample-a', title: '온실 점검 기록 정리', created_at: day('14:00', '21'), assignmentVerified: true },
+    { id: 'a3', assignee_id: 'sample-a', title: '포장 자재 예약 확인', created_at: day('14:00'), assignmentVerified: true },
+    { id: 'b1', assignee_id: 'sample-b', title: '관수 상태 관찰', created_at: day('21:30', '21'), assignmentVerified: true },
+    { id: 'b2', assignee_id: 'sample-b', title: '입고 준비 목록 점검', created_at: day('12:00', '21'), assignmentVerified: true },
+    { id: 'b3', assignee_id: 'sample-b', title: '작업대 재배치 검토', created_at: day('15:00') },
+  ];
+  const history = [
+    ['a1', day('09:00'), 'planned', 'in_progress'],
+    ['a1', day('10:00'), 'in_progress', 'hold'],
+    ['a1', day('11:00'), 'hold', 'in_progress'],
+    ['a1', day('12:00'), 'in_progress', 'completed', 'sample-reviewer'],
+    ['a2', day('13:00'), 'planned', 'completed'],
+    ['b1', day('23:30', '21'), 'planned', 'in_progress'],
+    ['b1', day('19:00'), 'in_progress', 'completed'],
+    ['b2', day('10:00'), 'in_progress', 'hold'],
+    ['b2', day('11:00'), 'hold', 'completed'],
+  ].map(([task_id, changed_at, previous_status, new_status, changed_by]) =>
+    ({ task_id, changed_at, previous_status, new_status, changed_by }));
+  const coverageByTask = new Map(tasks.map(task => [
+    task.id,
+    { from: task.id === 'b2' ? day('08:00') : task.created_at, through: day(cutoffTime) },
+  ]));
+  const titles = new Map(tasks.map(task => [task.id, task.title]));
+  const states = { planned: '예정', in_progress: '진행 중', hold: '보류', completed: '완료' };
+  const reports = staff.map(person => ({
+    ...person,
+    ...summarizeDailyTaskTime({ date, cutoffTime, employeeId: person.id, tasks, history, coverageByTask }),
+  }));
+
+  const clock = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  const stateLabel = state => states[state] ?? '미확인';
+  const minutes = ms => {
+    const value = ms / 60_000;
+    return value > 0 && value < 0.01 ? '0.01분 미만' : `${value.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}분`;
+  };
+  const timeLabel = (value, known) => value === null
+    ? `미확인${known > 0 ? ` (확인 ${minutes(known)})` : ''}`
+    : minutes(value);
+
+  function total(rows, key, state) {
+    const known = rows.reduce((sum, row) => sum + row.knownStateMs[state], 0);
+    return timeLabel(rows.some(row => row[key] === null) ? null : known, known);
+  }
+
+  function flagCount(rows, key) {
+    const count = rows.filter(row => row[key] === true).length;
+    const unknown = rows.filter(row => row[key] === null).length;
+    return `${count}건${unknown ? ` · 미확인 ${unknown}건` : ''}`;
+  }
+
+  function fact(label, value) {
+    return `<div><dt>${label}</dt><dd>${value}</dd></div>`;
+  }
+
+  function workDetails(row) {
+    const flags = [
+      ['등록', row.registeredToday], ['진행', row.workedToday], ['완료', row.completedToday],
+    ].filter(([, flag]) => flag === true).map(([label]) => label);
+    const transitions = row.transitions.map(event =>
+      `<li>${clock.format(new Date(event.at))} · ${stateLabel(event.from)} → ${stateLabel(event.to)}${event.changedBy === 'sample-reviewer' ? ' · 합성 검토자 처리' : ''}</li>`);
+    const segments = row.segments.filter(segment => segment.status !== 'completed')
+      .map(segment => `<li>${clock.format(new Date(segment.from))}–${clock.format(new Date(segment.to))} · ${stateLabel(segment.status)}</li>`);
+    return `<details class="work" data-task="${row.taskId}">
+      <summary>${titles.get(row.taskId)} <small>${stateLabel(row.stateAtCutoff)}</small></summary>
+      <div class="inside detail">
+        <p>${flags.length ? `당일 확인: ${flags.join(' · ')}` : '확인된 당일 등록·진행·완료 기록 없음'}</p>
+        <p>진행 ${timeLabel(row.runningMs, row.knownStateMs.in_progress)} · 보류 ${timeLabel(row.holdMs, row.knownStateMs.hold)}</p>
+        ${row.unknownMs > 0 ? `<p class="notice">상태 미확인 구간 ${minutes(row.unknownMs)}</p>` : ''}
+        <h3>당일 상태 변경 이력</h3>
+        ${transitions.length ? `<ul>${transitions.join('')}</ul>` : '<p class="muted">마감까지 확인된 당일 변경 없음</p>'}
+        <h3>마감까지의 상태 구간</h3>
+        ${segments.length ? `<ul>${segments.join('')}</ul>` : '<p class="muted">표시할 구간 없음</p>'}
+      </div>
+    </details>`;
+  }
+
+  const relevant = row => row.registeredToday !== false || row.workedToday !== false ||
+    row.completedToday !== false || row.transitions.length > 0 ||
+    row.knownStateMs.hold > 0 || row.issues.length > 0;
+  const all = reports.flatMap(report => report.tasks.filter(relevant));
+  const unverified = reports.flatMap(report => report.unverifiedAssignment.filter(relevant));
+  const incomplete = all.filter(row => row.issues.length > 0 || row.unknownMs > 0);
+  const completed = all.filter(row => row.completedToday === true).length;
+  const running = all.filter(row => row.stateAtCutoff === 'in_progress').length;
+
+  document.querySelector('#overview').textContent =
+    `합성 직원 ${reports.length}명의 업무 중 당일 완료 ${completed}건, 마감 시 진행 중 ${running}건입니다. 확인 필요 업무는 ${incomplete.length + unverified.length}건입니다.`;
+  document.querySelector('#employees').innerHTML = reports.map(report => {
+    const rows = report.tasks.filter(relevant);
+    const unfinished = rows.filter(row => row.workedToday === true && row.completedToday === false).length;
+    const uncertain = rows.filter(row => row.workedToday !== false && row.completedToday !== true &&
+      (row.workedToday === null || row.completedToday === null)).length;
+    return `<details class="employee" data-employee="${report.employeeId}">
+      <summary>${report.name} <small>확인된 담당 업무 ${rows.length}건</small></summary>
+      <div class="inside">
+        <dl class="facts">
+          ${fact('오늘 등록', flagCount(rows, 'registeredToday'))}
+          ${fact('오늘 진행', flagCount(rows, 'workedToday'))}
+          ${fact('오늘 완료', flagCount(rows, 'completedToday'))}
+          ${fact('진행 후 미완료', `${unfinished}건${uncertain ? ` · 미확인 ${uncertain}건` : ''}`)}
+          ${fact('진행 합계', total(rows, 'runningMs', 'in_progress'))}
+          ${fact('보류 합계', total(rows, 'holdMs', 'hold'))}
+        </dl>
+        ${rows.map(workDetails).join('')}
+        ${report.unverifiedAssignment.filter(relevant).map(row =>
+          `<p class="muted notice">${titles.get(row.taskId)} · 담당 관계 미확인, 직원 집계 제외</p>`).join('')}
+      </div>
+    </details>`;
+  }).join('');
+  document.querySelector('#review').innerHTML = [
+    ...incomplete.map(row => `<li>${titles.get(row.taskId)} · 상태 이력 확인 필요</li>`),
+    ...unverified.map(row => `<li>${titles.get(row.taskId)} · 보고 기간 담당자 확인 필요</li>`),
+  ].join('') || '<li>확인 필요 업무가 없습니다.</li>';
+  document.querySelector('#counts').innerHTML = [
+    fact('전체 업무', `${all.length + unverified.length}건`),
+    fact('당일 완료', `${completed}건`),
+    fact('마감 시 진행 중', `${running}건`),
+    fact('확인 필요', `${incomplete.length + unverified.length}건`),
+  ].join('');
+</script>
+</body>
+</html>
