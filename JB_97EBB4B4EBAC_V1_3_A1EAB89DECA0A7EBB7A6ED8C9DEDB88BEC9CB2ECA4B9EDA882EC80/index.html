@@ -1304,6 +1304,7 @@ async function loadData(){
  // 서버에서 권한이 바뀐 직원이 과거 관리자 화면을 계속 보지 않게 차단
  if(!await jbVerifyCurrentEmployee())return;
  busy=true;err='';dashboard();
+ const clockSync=syncTaskClock();
  try{
  const requests=[['events',supa.from('jb_events').select('id,title,description,event_date,created_by,created_at').gte('event_date',localDay(-31)).lte('event_date',localDay(365)).order('event_date',{ascending:true}).limit(1000)],['taskComments',supa.from('jb_task_comments').select('id,task_id,author_id,body,created_at').order('created_at',{ascending:true}).limit(1000)],['departments',supa.from('jb_departments').select('id,name').limit(100)],['employees',supa.rpc('jb_public_staff_directory')],['staffPhones',supa.from('jb_staff_contact_numbers').select('employee_id,phone')],...(profile.app_role==='owner'?[['managedEmployees',supa.rpc('jb_admin_staff_management_list')]]:profile.app_role==='manager'?[['managedEmployees',supa.rpc('jb_manager_staff_management_list')]]:[]),['employeeRoles',supa.from('jb_employees').select('id,app_role,department_id').eq('active',true).limit(500)],['attendance',supa.from('jb_attendance').select('id,work_date,status,work_location,temporary_name,employee_id').gte('work_date',localDay(-1)).order('work_date').limit(1000)],['announcements',supa.from('jb_announcements').select('id,title,content,image_paths,author_id,created_at,updated_at').order('created_at',{ascending:false}).limit(30)],['reads',supa.from('jb_announcement_reads').select('announcement_id,employee_id,read_at').limit(1000)],['readStats',supa.rpc('jb_announcement_read_stats')],['notes',supa.from('jb_attendance_notes').select('id,work_date,note,created_at').gte('work_date',localDay(-1)).order('created_at',{ascending:false}).limit(100)],['leaves',supa.rpc('jb_leave_visible_requests')],['leaveChanges',supa.rpc('jb_leave_change_visible')],['reportRequests',supa.from('jb_task_report_requests').select('id,task_id,requester_id,note,created_at,acknowledged_at,acknowledged_by,target_owner').order('created_at',{ascending:false}).limit(1000)],['commentAttention',supa.from('jb_task_comment_attention_v13').select('comment_id,task_id,employee_id,created_at,acknowledged_at').eq('employee_id',profile.id).is('acknowledged_at',null).order('created_at',{ascending:false}).limit(1000)],...(profile.app_role==='staff'?[['taskAssignments',supa.from('jb_task_assignment_ack_v13').select('task_id,employee_id,assigned_at,acknowledged_at').eq('employee_id',profile.id).is('acknowledged_at',null).order('assigned_at',{ascending:false}).limit(1000)]]:[])];
  // V6.6.5.9: 이전 100건 제한 해소. 오래된 업무를 500건씩 순차 조회합니다.
@@ -1319,18 +1320,15 @@ async function loadData(){
   const batch=data||[];tasksBatch.push(...batch);
   if(batch.length<tasksQuerySize)break;
  }
- const history=await loadTaskHistory();
- const historyByTask=new Map();
- for(const row of history.data){
-  if(!historyByTask.has(row.task_id))historyByTask.set(row.task_id,[]);
-  historyByTask.get(row.task_id).push(row);
- }
+ const history=await loadTaskHistories(tasksBatch);
+ await clockSync;
  records.tasks=tasksBatch;
- records.taskHistory=historyByTask;
+ records.taskHistory=history.byTask;
  records.taskHistoryError=history.error;
  if(history.error)err+='업무 상태 이력 조회 실패: '+history.error.message+' (서버 새로고침으로 다시 시도하세요.)\n';
  if(tasksLoadError)err+=(err?'\n':'')+tasksLoadError;
  if(tasksBatch.length>=tasksMaximum)err+=(err?'\n':'')+'업무가 5,000건 이상입니다. 일부 오래된 업무는 완료 보관함에서 조회하고, 전체 조회 범위를 확장해야 합니다.';
+ if(taskStatusSaving)dashboard();
  const resp=await Promise.all(requests.map(async ([key,q])=>({key,...(await q)})));
  for(const r of resp){
   if(r.error){
@@ -1456,7 +1454,8 @@ async function createTask(ev){
 }
 let taskStatusSaving=false;
 async function changeTaskStatus(id,value){
- if(!['planned','in_progress','hold','completed'].includes(value)||taskStatusSaving)return;
+ const task=records.tasks.find(t=>t.id===id);
+ if(!task||task.status===value||!['planned','in_progress','hold','completed'].includes(value)||taskStatusSaving)return;
  taskStatusSaving=true;
  shell.querySelectorAll('.srv-status, .srv-home-status').forEach(el=>el.disabled=true);
  try {
@@ -1861,7 +1860,8 @@ function homePage(){
  const completed=records.tasks.filter(t=>t.status==='completed').length;
  const activePeople=new Set(records.tasks.filter(t=>t.status==='in_progress').map(t=>t.assignee_id)).size;
 
- let html=jbHomeNoticeAlerts()+jbReportPanel()+(canRegisterTask()?'<div class="srv-row" style="margin:0 0 15px"><button type="button" id="srvHomeCreateTask">＋ 새 업무 등록</button></div>':'');
+ let html=jbHomeNoticeAlerts()+jbReportPanel()+
+  (['owner','manager'].includes(profile.app_role)?'<div class="srv-row" style="margin-bottom:12px"><button type="button" class="alt" id="srvReportCsv">업무 현황 CSV</button></div>':'')+(canRegisterTask()?'<div class="srv-row" style="margin:0 0 15px"><button type="button" id="srvHomeCreateTask">＋ 새 업무 등록</button></div>':'');
  html+=`<section class="srv-home-section"><h2>1. 직원별 업무 현황</h2><p class="srv-muted">미완료 업무 ${records.tasks.filter(t=>t.status!=='completed').length}건 · 진행중 직원 ${activePeople}명 · 부서를 누르면 목록을 좁혀볼 수 있습니다.</p><p class="srv-muted">제목은 <b>진행중</b> 업무만 오른쪽 표시하며, 예정·보류 업무 제목은 표시하지 않습니다.</p>`;
  
  if(!openDept&&canAll&&departments.length)html+='<p class="srv-muted">부서를 선택하면 해당 직원의 업무를 볼 수 있습니다. 아래에는 조회 가능한 전체 직원이 표시됩니다.</p>';
@@ -2859,13 +2859,13 @@ async function directoryUpdate(kind,values){
 }
 
 // PostgREST can cap the rows returned by a single request.
-async function loadTaskHistory(taskId){
+async function loadTaskHistory(taskIds){
  const data=[];
  const pageSize=500;
  try{
   for(let offset=0;;){
    let query=supa.from('jb_task_history').select('id,task_id,previous_status,new_status,changed_at');
-   if(taskId)query=query.eq('task_id',taskId);
+   query=query.in('task_id',taskIds);
    const {data:page,error}=await query.order('changed_at').order('id').range(offset,offset+pageSize-1);
    if(error)throw error;
    if(!page.length)return {data};
@@ -2874,8 +2874,41 @@ async function loadTaskHistory(taskId){
   }
  }catch(error){return {data:[],error}}
 }
+async function loadTaskHistories(tasks){
+ const byTask=new Map();
+ // Keep the REST URL bounded and fetch only histories for the visible task snapshot.
+ const batchSize=100;
+ for(let i=0;i<tasks.length;i+=batchSize){
+  const {data,error}=await loadTaskHistory(tasks.slice(i,i+batchSize).map(t=>t.id));
+  if(error)return {byTask:new Map(),error};
+  for(const row of data){
+   if(!byTask.has(row.task_id))byTask.set(row.task_id,[]);
+   byTask.get(row.task_id).push(row);
+  }
+ }
+ return {byTask};
+}
+let taskClockSample=null;
+async function syncTaskClock(){
+ const sent=performance.now();
+ if(taskClockSample&&sent-taskClockSample.received<60000)return;
+ try{
+  const response=await fetch('/.netlify/functions/task-clock-time',{cache:'no-store',signal:AbortSignal.timeout(2000)});
+  if(!response.ok)return;
+  const {now}=await response.json();
+  const received=performance.now();
+  if(Number.isFinite(now)&&received-sent<=2000&&(!taskClockSample||sent>taskClockSample.sent)){
+   taskClockSample={now,sent,received};
+  }
+ }catch(_){}
+}
+function taskClockNow(){
+ if(!taskClockSample)return Date.now();
+ const {now,sent,received}=taskClockSample;
+ return now+(received-sent)/2+(performance.now()-received);
+}
 // Use only recorded transitions. Never infer a missing start or end from the task row.
-function taskClock(t, now=Date.now(), entries=records.taskHistory.get(t.id)||[], historyError=records.taskHistoryError){
+function taskClock(t, now=taskClockNow(), entries=records.taskHistory.get(t.id)||[], historyError=records.taskHistoryError){
  if(historyError)return {valid:false,reason:'query'};
  const started=Date.parse(t.created_at||'');
  if(!Number.isFinite(started))return {valid:false,reason:'invalid'};
@@ -2900,22 +2933,19 @@ function durationLabel(ms){
  const sec=Math.floor(Math.max(0,ms)/1000),h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;
  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
-function serverClockHtml(t, clock=taskClock(t)){
- const v=clock;
- if(!v.valid){
-  const messages={
+const taskClockMessages={
    query:'업무 상태 이력을 조회하지 못했습니다. 서버 새로고침으로 다시 시도하세요.',
    missing:'저장된 업무 상태 변경 이력이 없어 누적 시간을 확인할 수 없습니다.',
    invalid:'업무 상태 이력이 불완전해 누적 시간을 확인할 수 없습니다.',
    mismatch:'업무 상태와 마지막 변경 이력이 일치하지 않습니다. 서버 새로고침으로 다시 확인하세요.'
-  };
-  return `<div class="srv-muted" style="margin-top:8px">⏱ ${messages[v.reason]}</div>`;
- }
+};
+function serverClockHtml(t, v=taskClock(t)){
+ if(!v.valid)return `<div class="srv-muted" style="margin-top:8px">⏱ ${taskClockMessages[v.reason]}</div>`;
  return `<div class="srv-row srv-clock" data-clock-task="${safe(t.id)}" style="margin:8px 0;font-size:12px"><span>◷ 예정 누적 <b data-clock-planned>${durationLabel(v.planned)}</b></span><span>▶ 진행 누적 <b data-clock-running>${durationLabel(v.running)}</b></span><span>Ⅱ 보류 누적 <b data-clock-holding>${durationLabel(v.holding)}</b></span>${['planned','in_progress','hold'].includes(t.status)?'<span class="srv-pill">실시간 집계</span>':''}</div>`;
 }
 function refreshVisibleTaskClocks(){
  if(!profile||!['home','tasks'].includes(view))return;
- const now=Date.now();
+ const now=taskClockNow();
  const clocks=new Map();
  shell.querySelectorAll('[data-clock-task]').forEach(el=>{
   const id=el.dataset.clockTask;
@@ -3311,7 +3341,8 @@ async function exportCompletedTasksCsv(mode="month"){
   }
   if(!finished||chosen.length>maxRows)throw new Error('완료 업무가 20,000건을 초과합니다. 조회 기간을 나누어 내려받아 주세요.');
   if(!chosen.length)return alert('내보낼 완료 업무가 없습니다.');
-  const headers=['완료일','완료시각','업무명','업무내용','담당자','부서','목표일','업무ID'];
+  const history=await loadTaskHistories(chosen);
+  const headers=['완료일','완료시각','업무명','업무내용','담당자','부서','목표일','업무ID','진행 누적','보류 누적','시간 확인 상태'];
   const safeCsvValue=v=>{
    let x=String(v==null?'':v);
    if(/^\s*[=+@\-\t\r]/.test(x))x="'"+x;
@@ -3323,7 +3354,9 @@ async function exportCompletedTasksCsv(mode="month"){
    const timestamp=finished.toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false});
    const employee=records.employees.find(e=>e.id===t.assignee_id);
    const department=records.departments.find(d=>d.id===(t.department_id||employee?.department_id));
-   return [day,timestamp,t.title,t.description||'',employee?.name||'직원명 확인 불가',department?.name||'부서 확인 불가',t.due_date||'',t.id];
+   const clock=taskClock(t,taskClockNow(),history.byTask.get(t.id)||[],history.error||null);
+   return [day,timestamp,t.title,t.description||'',employee?.name||'직원명 확인 불가',department?.name||'부서 확인 불가',t.due_date||'',t.id,
+    clock.valid?durationLabel(clock.running):'',clock.valid?durationLabel(clock.holding):'',clock.valid?'확인':taskClockMessages[clock.reason]];
   });
   const csv='\ufeff'+[headers,...rows].map(r=>r.map(safeCsvValue).join(',')).join('\r\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
@@ -3344,7 +3377,7 @@ async function jbArchiveToggleDetail(id,forceOpen=false){
   if(taskResponse.error)throw taskResponse.error;
   const [comments,history,images]=await Promise.all([
    supa.from('jb_task_comments').select('id,author_id,body,created_at').eq('task_id',id).order('created_at',{ascending:true}).limit(1000),
-   loadTaskHistory(id),
+   loadTaskHistory([id]),
    supa.from('jb_task_images').select('id,comment_id,storage_path,uploaded_at').eq('task_id',id).order('uploaded_at',{ascending:true}).limit(100)
   ]);
   for(const res of [comments,images])if(res.error)throw res.error;
@@ -3365,7 +3398,7 @@ function jbArchiveDetails(t){
  if(!a)return '<div class="srv-note">업무 정보를 확인할 수 없습니다.</div>';
  const person=id=>records.employees.find(e=>e.id===id)?.name||'직원 정보 확인 불가';
  const {data:x,error:historyError}=archiveDetailHistory;
- const clock=taskClock(a,Date.now(),x,historyError||null);
+ const clock=taskClock(a,taskClockNow(),x,historyError||null);
  const when=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'-';
  return `<div class="srv-note jb-archive-details" style="margin-top:12px;background:#f3f8f5"><h4 style="margin:0 0 10px">완료 업무 상세 · 조회 전용</h4>
  <div class="srv-muted">지시자: ${safe(person(a.created_by))} · 담당자: ${safe(person(a.assignee_id))}</div>
@@ -3396,10 +3429,11 @@ function archivePage(){
 
 // V6.6.7.9 읽기 전용 업무 현황 보고. 업무시간은 상태 이력 기반이며 실제 근로시간을 뜻하지 않습니다.
 function taskReportRows(){
+ const now=taskClockNow();
  return jbStaffDisplaySorted(records.employees).map(e=>{
   const ts=records.tasks.filter(t=>t.assignee_id===e.id);
   let running=0,holding=0,unverified=0;
-  ts.forEach(t=>{const c=taskClock(t);if(c.valid){running+=c.running;holding+=c.holding;}else unverified++;});
+  ts.forEach(t=>{const c=taskClock(t,now);if(c.valid){running+=c.running;holding+=c.holding;}else unverified++;});
   const dept=records.departments.find(d=>d.id===e.department_id)?.name||'미지정';
   return {id:e.id,name:e.name||'미등록',position:e.position||'',dept,total:ts.length,
    runningCount:ts.filter(t=>t.status==='in_progress').length,
@@ -3412,8 +3446,8 @@ function taskReportRows(){
 function downloadReportCsv(){
  if(!profile||!['owner','manager'].includes(profile.app_role))return;
  const escapeCell=x=>{let value=String(x??'');if(/^[\s]*[=+@\-\t\r]/.test(value))value="'"+value;return '"'+value.replace(/"/g,'""')+'"';};
- const lines=[['부서','직원','직급','진행중','보류','예정','완료','전체','진행 누적','보류 누적','시간 이력 부족 건수']];
- taskReportRows().forEach(r=>lines.push([r.dept,r.name,r.position,r.runningCount,r.heldCount,r.plannedCount,r.completedCount,r.total,durationLabel(r.running),durationLabel(r.holding),r.unverified]));
+ const lines=[['부서','직원','직급','진행중','보류','예정','완료','전체','진행 누적','보류 누적','시간 확인 불가 건수']];
+ taskReportRows().forEach(r=>lines.push([r.dept,r.name,r.position,r.runningCount,r.heldCount,r.plannedCount,r.completedCount,r.total,r.unverified===r.total&&r.total?'확인 불가':durationLabel(r.running),r.unverified===r.total&&r.total?'확인 불가':durationLabel(r.holding),r.unverified]));
  const text='\ufeff'+lines.map(row=>row.map(escapeCell).join(',')).join('\r\n');
  const url=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8'}));
  const a=document.createElement('a');a.href=url;a.download='JB_직원별업무현황_'+localDay()+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -3885,7 +3919,7 @@ function dashboard(){
    const isMine=t.assignee_id===profile.id, canEdit=profile.app_role==='owner'||isMine||(profile.app_role==='manager'&&t.department_id===profile.department_id);
    const assigned=records.employees.find(e=>e.id===t.assignee_id)?.name||'담당자 미표시';
    const statuses=['planned','in_progress','hold','completed'];
-   return `<div class="srv-line srv-my-task-card jb-readability-task" data-task-status="${safe(t.status)}" data-task-search="${safe((t.title||'')+' '+(t.description||''))}"><div class="srv-row" style="justify-content:space-between"><b>${safe(t.title)}</b>${canEdit?`<select class="srv-status" data-task="${safe(t.id)}" aria-label="업무 상태" style="padding:6px;border:1px solid #cbdcd4;border-radius:8px">${statuses.map(st=>`<option value="${st}" ${st===t.status?'selected':''}>${safe(status[st])}</option>`).join('')}</select>`:`<span class="srv-pill">${safe(status[t.status]||t.status)}</span>`}</div><div class="srv-muted">지시자: ${safe(jbTaskIssuerName(t))} · 담당: ${safe(assigned)}${t.due_date?' · 기한 '+safe(t.due_date):''}</div>${serverClockHtml(t)}<button type="button" class="alt srv-task-detail" data-id="${safe(t.id)}" style="margin-top:7px">${expandedServerTask===t.id?'상세 닫기':'상세 보기 · 댓글'}</button><button type="button" class="alt srv-task-photo-open" data-id="${safe(t.id)}" style="margin:7px 0 0 8px;border:2px solid #23865d;font-weight:700">📷 사진 첨부·조회</button>${expandedServerTask===t.id?serverTaskDetails(t):''}</div>`;
+   return `<div class="srv-line srv-my-task-card jb-readability-task" data-task-status="${safe(t.status)}" data-task-search="${safe((t.title||'')+' '+(t.description||''))}"><div class="srv-row" style="justify-content:space-between"><b>${safe(t.title)}</b>${canEdit?`<select class="srv-status" data-task="${safe(t.id)}" aria-label="업무 상태" ${taskStatusSaving?'disabled':''} style="padding:6px;border:1px solid #cbdcd4;border-radius:8px">${statuses.map(st=>`<option value="${st}" ${st===t.status?'selected':''}>${safe(status[st])}</option>`).join('')}</select>`:`<span class="srv-pill">${safe(status[t.status]||t.status)}</span>`}</div><div class="srv-muted">지시자: ${safe(jbTaskIssuerName(t))} · 담당: ${safe(assigned)}${t.due_date?' · 기한 '+safe(t.due_date):''}</div>${serverClockHtml(t)}<button type="button" class="alt srv-task-detail" data-id="${safe(t.id)}" style="margin-top:7px">${expandedServerTask===t.id?'상세 닫기':'상세 보기 · 댓글'}</button><button type="button" class="alt srv-task-photo-open" data-id="${safe(t.id)}" style="margin:7px 0 0 8px;border:2px solid #23865d;font-weight:700">📷 사진 첨부·조회</button>${expandedServerTask===t.id?serverTaskDetails(t):''}</div>`;
   }).join(''):'<p class="srv-muted">진행중·예정·보류 업무가 없습니다. 완료한 업무는 완료 보관함에서 확인하세요.</p>';
  }
  if(view==='attendance')content=approvalQueue(true)+rosterEditor()+jbAttendanceHistoryPanel();
