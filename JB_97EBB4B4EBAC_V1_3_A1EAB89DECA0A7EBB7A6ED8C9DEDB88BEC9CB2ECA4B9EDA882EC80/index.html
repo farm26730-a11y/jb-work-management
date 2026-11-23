@@ -1109,10 +1109,10 @@ let homeSelectedEmployee=null,homeSelectedTask=null;
 const TASK_PHOTO_BUCKET='jb-task-images';
 let taskPhotoItems=[],taskPhotoTask='',taskPhotoLoading=false,taskPhotoError='',taskPhotoUploading=false,taskPhotoDeleting=false;
 let archiveMonth=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'}).slice(0,7),archiveDay='',archiveRows=[],archiveLoading=false,archiveError='',archiveTruncated=false;
-let archiveDetailId=null,archiveDetailRecord=null,archiveDetailComments=[],archiveDetailHistory=[],archiveDetailImages=[],archiveDetailLoading=false,archiveDetailError='';
+let archiveDetailId=null,archiveDetailRecord=null,archiveDetailComments=[],archiveDetailHistory={data:[]},archiveDetailImages=[],archiveDetailLoading=false,archiveDetailError='';
 let mobileMoreOpen=false;
 let noticeInboxFilter='all';
-let supa=null,profile=null,view='home',homeDay='today',openDept='',records={tasks:[],departments:[],employees:[],attendance:[],announcements:[],reads:[],readStats:[],leaves:[],leaveChanges:[],notes:[],managedEmployees:[],taskComments:[],taskHistory:[],events:[],staffPhones:[],reportRequests:[],taskAssignments:[],commentAttention:[]},busy=false,err='';
+let supa=null,profile=null,view='home',homeDay='today',openDept='',records={tasks:[],departments:[],employees:[],attendance:[],announcements:[],reads:[],readStats:[],leaves:[],leaveChanges:[],notes:[],managedEmployees:[],taskComments:[],taskHistory:new Map(),events:[],staffPhones:[],reportRequests:[],taskAssignments:[],commentAttention:[]},busy=false,err='';
 const saved=()=>{try{localStorage.setItem(configKey,JSON.stringify(cfg))}catch(_){}};
 const label={owner:'대표님',manager:'관리자',staff:'직원'};
 const status={planned:'예정',in_progress:'진행중',hold:'보류',completed:'완료'};
@@ -1233,6 +1233,7 @@ async function loadProfile(){
  let {data:{user},error:authError}=await supa.auth.getUser();if(authError||!user){if(authError){login('연결 오류로 로그인 상태를 확인하지 못했습니다. 인터넷 연결을 확인한 후 다시 시도해 주세요.');return;}login('인증 세션이 없습니다. 로그인하세요.');return;}
  const {data,error}=await supa.from('jb_employees').select('id,name,position,app_role,department_id,active').eq('auth_user_id',user.id).eq('active',true).maybeSingle();
  if(error){login('직원 정보 조회에 실패했습니다. 네트워크 및 접근 권한을 확인하세요. 로그인 세션은 보존됩니다.');return;}if(!data){profile=null;login('이메일 계정 인증은 완료되었지만 아직 직원관리에서 계정 연결·활성화가 필요합니다. 대표님 또는 부서장에게 요청하세요.');return;}
+ records.tasks=[];records.taskHistory=new Map();records.taskHistoryError=null;
  profile=data;jbAcctOpen=false;jbAcctState=null;jbAcctMsg='';repeatTemplates=[];repeatTemplatesLoaded=false;await loadData();await loadRepeatTemplates();if(['owner','manager'].includes(profile?.app_role))void jbAcctReload(true);
 }
 // V6.6.8.1: 로그인 후 변경된 재직상태/역할을 서버에서 재확인합니다.
@@ -1249,7 +1250,7 @@ async function jbVerifyCurrentEmployee(){
    err='연결 상태를 확인 중입니다. 인터넷 연결 후 다시 시도해 주세요.';
    return false;
   }
-  profile=null;records={tasks:[],departments:[],employees:[],attendance:[],announcements:[],reads:[],readStats:[],leaves:[],leaveChanges:[],notes:[],managedEmployees:[],taskComments:[],taskHistory:[],events:[]};
+  profile=null;records={tasks:[],departments:[],employees:[],attendance:[],announcements:[],reads:[],readStats:[],leaves:[],leaveChanges:[],notes:[],managedEmployees:[],taskComments:[],taskHistory:new Map(),events:[]};
   login('인증 세션이 만료되었습니다. 다시 로그인해 주세요.');return false;
  }
  const {data:me,error:empError}=await supa.from('jb_employees')
@@ -1260,7 +1261,7 @@ async function jbVerifyCurrentEmployee(){
   return false;
  }
  if(!me||me.active!==true){
-  profile=null;records={tasks:[],departments:[],employees:[],attendance:[],announcements:[],reads:[],readStats:[],leaves:[],leaveChanges:[],notes:[],managedEmployees:[],taskComments:[],taskHistory:[],events:[]};
+  profile=null;records={tasks:[],departments:[],employees:[],attendance:[],announcements:[],reads:[],readStats:[],leaves:[],leaveChanges:[],notes:[],managedEmployees:[],taskComments:[],taskHistory:new Map(),events:[]};
   try{await supa.auth.signOut()}catch(_){}
   login('이 계정은 현재 비활성 상태이거나 직원 등록이 해제되어 사용할 수 없습니다.');return false;
  }
@@ -1269,6 +1270,7 @@ async function jbVerifyCurrentEmployee(){
  if(identityChanged){
   // 과거 역할에서 불러온 민감한 관리 목록을 먼저 비웁니다.
   records.managedEmployees=[];records.employeeRoles=[];records.leaves=[];
+  records.tasks=[];records.taskHistory=new Map();records.taskHistoryError=null;
   if(!['owner','manager'].includes(me.app_role)&&['employees'].includes(view))view='home';
  }
  return true;
@@ -1303,7 +1305,7 @@ async function loadData(){
  if(!await jbVerifyCurrentEmployee())return;
  busy=true;err='';dashboard();
  try{
- const requests=[['events',supa.from('jb_events').select('id,title,description,event_date,created_by,created_at').gte('event_date',localDay(-31)).lte('event_date',localDay(365)).order('event_date',{ascending:true}).limit(1000)],['taskHistory',supa.from('jb_task_history').select('id,task_id,previous_status,new_status,changed_at').order('changed_at',{ascending:true}).limit(5000)],['taskComments',supa.from('jb_task_comments').select('id,task_id,author_id,body,created_at').order('created_at',{ascending:true}).limit(1000)],['departments',supa.from('jb_departments').select('id,name').limit(100)],['employees',supa.rpc('jb_public_staff_directory')],['staffPhones',supa.from('jb_staff_contact_numbers').select('employee_id,phone')],...(profile.app_role==='owner'?[['managedEmployees',supa.rpc('jb_admin_staff_management_list')]]:profile.app_role==='manager'?[['managedEmployees',supa.rpc('jb_manager_staff_management_list')]]:[]),['employeeRoles',supa.from('jb_employees').select('id,app_role,department_id').eq('active',true).limit(500)],['attendance',supa.from('jb_attendance').select('id,work_date,status,work_location,temporary_name,employee_id').gte('work_date',localDay(-1)).order('work_date').limit(1000)],['announcements',supa.from('jb_announcements').select('id,title,content,image_paths,author_id,created_at,updated_at').order('created_at',{ascending:false}).limit(30)],['reads',supa.from('jb_announcement_reads').select('announcement_id,employee_id,read_at').limit(1000)],['readStats',supa.rpc('jb_announcement_read_stats')],['notes',supa.from('jb_attendance_notes').select('id,work_date,note,created_at').gte('work_date',localDay(-1)).order('created_at',{ascending:false}).limit(100)],['leaves',supa.rpc('jb_leave_visible_requests')],['leaveChanges',supa.rpc('jb_leave_change_visible')],['reportRequests',supa.from('jb_task_report_requests').select('id,task_id,requester_id,note,created_at,acknowledged_at,acknowledged_by,target_owner').order('created_at',{ascending:false}).limit(1000)],['commentAttention',supa.from('jb_task_comment_attention_v13').select('comment_id,task_id,employee_id,created_at,acknowledged_at').eq('employee_id',profile.id).is('acknowledged_at',null).order('created_at',{ascending:false}).limit(1000)],...(profile.app_role==='staff'?[['taskAssignments',supa.from('jb_task_assignment_ack_v13').select('task_id,employee_id,assigned_at,acknowledged_at').eq('employee_id',profile.id).is('acknowledged_at',null).order('assigned_at',{ascending:false}).limit(1000)]]:[])];
+ const requests=[['events',supa.from('jb_events').select('id,title,description,event_date,created_by,created_at').gte('event_date',localDay(-31)).lte('event_date',localDay(365)).order('event_date',{ascending:true}).limit(1000)],['taskComments',supa.from('jb_task_comments').select('id,task_id,author_id,body,created_at').order('created_at',{ascending:true}).limit(1000)],['departments',supa.from('jb_departments').select('id,name').limit(100)],['employees',supa.rpc('jb_public_staff_directory')],['staffPhones',supa.from('jb_staff_contact_numbers').select('employee_id,phone')],...(profile.app_role==='owner'?[['managedEmployees',supa.rpc('jb_admin_staff_management_list')]]:profile.app_role==='manager'?[['managedEmployees',supa.rpc('jb_manager_staff_management_list')]]:[]),['employeeRoles',supa.from('jb_employees').select('id,app_role,department_id').eq('active',true).limit(500)],['attendance',supa.from('jb_attendance').select('id,work_date,status,work_location,temporary_name,employee_id').gte('work_date',localDay(-1)).order('work_date').limit(1000)],['announcements',supa.from('jb_announcements').select('id,title,content,image_paths,author_id,created_at,updated_at').order('created_at',{ascending:false}).limit(30)],['reads',supa.from('jb_announcement_reads').select('announcement_id,employee_id,read_at').limit(1000)],['readStats',supa.rpc('jb_announcement_read_stats')],['notes',supa.from('jb_attendance_notes').select('id,work_date,note,created_at').gte('work_date',localDay(-1)).order('created_at',{ascending:false}).limit(100)],['leaves',supa.rpc('jb_leave_visible_requests')],['leaveChanges',supa.rpc('jb_leave_change_visible')],['reportRequests',supa.from('jb_task_report_requests').select('id,task_id,requester_id,note,created_at,acknowledged_at,acknowledged_by,target_owner').order('created_at',{ascending:false}).limit(1000)],['commentAttention',supa.from('jb_task_comment_attention_v13').select('comment_id,task_id,employee_id,created_at,acknowledged_at').eq('employee_id',profile.id).is('acknowledged_at',null).order('created_at',{ascending:false}).limit(1000)],...(profile.app_role==='staff'?[['taskAssignments',supa.from('jb_task_assignment_ack_v13').select('task_id,employee_id,assigned_at,acknowledged_at').eq('employee_id',profile.id).is('acknowledged_at',null).order('assigned_at',{ascending:false}).limit(1000)]]:[])];
  // V6.6.5.9: 이전 100건 제한 해소. 오래된 업무를 500건씩 순차 조회합니다.
  // 서버 오류가 나면 이미 불러온 업무를 유지하고 누락 가능성을 안내합니다.
  const tasksQuerySize=500,tasksMaximum=5000;
@@ -1317,7 +1319,16 @@ async function loadData(){
   const batch=data||[];tasksBatch.push(...batch);
   if(batch.length<tasksQuerySize)break;
  }
+ const history=await loadTaskHistory();
+ const historyByTask=new Map();
+ for(const row of history.data){
+  if(!historyByTask.has(row.task_id))historyByTask.set(row.task_id,[]);
+  historyByTask.get(row.task_id).push(row);
+ }
  records.tasks=tasksBatch;
+ records.taskHistory=historyByTask;
+ records.taskHistoryError=history.error;
+ if(history.error)err+='업무 상태 이력 조회 실패: '+history.error.message+' (서버 새로고침으로 다시 시도하세요.)\n';
  if(tasksLoadError)err+=(err?'\n':'')+tasksLoadError;
  if(tasksBatch.length>=tasksMaximum)err+=(err?'\n':'')+'업무가 5,000건 이상입니다. 일부 오래된 업무는 완료 보관함에서 조회하고, 전체 조회 범위를 확장해야 합니다.';
  const resp=await Promise.all(requests.map(async ([key,q])=>({key,...(await q)})));
@@ -1326,7 +1337,7 @@ async function loadData(){
     // V6.6.7.9: 조회 실패 항목은 이전 화면 데이터로 표시하지 않는다.
     // 특히 승인 신청/직원 역할 정보가 남으면 잘못된 승인 대기 현황이 보일 수 있다.
     records[r.key]=[];
-    const labels={leaves:'휴무·연장근무 신청',employeeRoles:'직원 권한',employees:'직원 명단',taskHistory:'업무 상태 이력',taskComments:'업무 댓글',attendance:'근태 인원배치',events:'주요 일정',announcements:'공지사항',managedEmployees:'직원 관리',departments:'부서',reads:'공지 읽음',readStats:'공지 읽음 통계',notes:'근태 메모',staffPhones:'직원 전화번호',reportRequests:'업무 확인 요청',taskAssignments:'신규 업무 지시 확인 요청',commentAttention:'내 업무 새 댓글 확인 요청'};
+    const labels={leaves:'휴무·연장근무 신청',employeeRoles:'직원 권한',employees:'직원 명단',taskComments:'업무 댓글',attendance:'근태 인원배치',events:'주요 일정',announcements:'공지사항',managedEmployees:'직원 관리',departments:'부서',reads:'공지 읽음',readStats:'공지 읽음 통계',notes:'근태 메모',staffPhones:'직원 전화번호',reportRequests:'업무 확인 요청',taskAssignments:'신규 업무 지시 확인 요청',commentAttention:'내 업무 새 댓글 확인 요청'};
     const title=labels[r.key]||r.key;
     err+=(err?'\n':'')+title+' 조회 실패: '+r.error.message+' (이전 자료를 표시하지 않았습니다. 서버 새로고침으로 다시 시도하세요.)';
   }else records[r.key]=r.data||[];
@@ -1867,10 +1878,10 @@ function homePage(){
  const off=leaveIds.has(e.id)||(!half&&att?.status==='off');
  const prefix=homeDay==='tomorrow'?'내일':'오늘';
  const attendance=off?prefix+' 휴무':half?prefix+' 출근 ('+half+')':att?.status==='trip'?prefix+' 출장':att?.status==='working'?prefix+' 출근 배치':prefix+' 배치 확인 전';
- html+=`<div class="srv-person-row ${current.length?'srv-person-working':''}"><div class="srv-person-meta"><div class="jb-home-person-head"><b>${safe(e.name)} ${safe(e.position||'')}</b>${/^0[0-9]{8,10}$/.test(String(e.phone||e.mobile||'').replace(/[^0-9]/g,''))?`<a class="jb-home-call" href="tel:${String(e.phone||e.mobile).replace(/[^0-9]/g,'')}" aria-label="${safe(e.name)} 전화 걸기" title="${safe(e.name)} 전화 걸기">☎ 전화</a>`:`<span class="jb-home-call-disabled" title="직원관리에 등록된 전화번호가 없습니다">전화번호 미등록</span>`}</div><div class="srv-muted">${safe(attendance)} · ${'진행·보류 '+active+'건'}</div>${current.length?'<span class="srv-working-mark">● 진행중 '+current.length+'건</span>':''}<button type="button" class="alt srv-home-person-tasks" data-employee="${safe(e.id)}" style="margin-top:7px">${homeSelectedEmployee===e.id?'업무 목록 닫기':'업무 조회 ('+assigned.length+'건)'}</button></div><div class="srv-current-tasks">${current.length?current.slice(0,2).map(t=>`<button type="button" class="srv-current-title srv-home-task-detail" data-task-id="${safe(t.id)}" data-employee="${safe(e.id)}" style="display:block;text-align:left;border:1px solid #cfe5d7;background:#ecf8f1;color:#19573b;padding:7px;margin:3px;border-radius:8px;cursor:pointer">${safe(t.title)} · 상세 보기 <span class="jb-home-task-issuer" style="display:block;font-size:11px;font-weight:500;color:#47766a">지시자: ${safe(jbTaskIssuerName(t))}</span></button>` ).join(''):'<span class="srv-muted">진행중 업무 없음</span>'}</div></div>`;
+ html+=`<div class="srv-person-row ${current.length?'srv-person-working':''}"><div class="srv-person-meta"><div class="jb-home-person-head"><b>${safe(e.name)} ${safe(e.position||'')}</b>${/^0[0-9]{8,10}$/.test(String(e.phone||e.mobile||'').replace(/[^0-9]/g,''))?`<a class="jb-home-call" href="tel:${String(e.phone||e.mobile).replace(/[^0-9]/g,'')}" aria-label="${safe(e.name)} 전화 걸기" title="${safe(e.name)} 전화 걸기">☎ 전화</a>`:`<span class="jb-home-call-disabled" title="직원관리에 등록된 전화번호가 없습니다">전화번호 미등록</span>`}</div><div class="srv-muted">${safe(attendance)} · ${'진행·보류 '+active+'건'}</div>${current.length?'<span class="srv-working-mark">● 진행중 '+current.length+'건</span>':''}<button type="button" class="alt srv-home-person-tasks" data-employee="${safe(e.id)}" style="margin-top:7px">${homeSelectedEmployee===e.id?'업무 목록 닫기':'업무 조회 ('+assigned.length+'건)'}</button></div><div class="srv-current-tasks">${current.length?current.slice(0,2).map(t=>`<div><button type="button" class="srv-current-title srv-home-task-detail" data-task-id="${safe(t.id)}" data-employee="${safe(e.id)}" style="display:block;text-align:left;border:1px solid #cfe5d7;background:#ecf8f1;color:#19573b;padding:7px;margin:3px;border-radius:8px;cursor:pointer">${safe(t.title)} · 상세 보기 <span class="jb-home-task-issuer" style="display:block;font-size:11px;font-weight:500;color:#47766a">지시자: ${safe(jbTaskIssuerName(t))}</span></button>${serverClockHtml(t)}</div>` ).join(''):'<span class="srv-muted">진행중 업무 없음</span>'}</div></div>`;
  if(homeSelectedEmployee===e.id){
   const visible=[...assigned].sort((a,b)=>({in_progress:0,hold:1,planned:2}[a.status]??3)-({in_progress:0,hold:1,planned:2}[b.status]??3));
-  html+=`<div class="srv-note" style="margin:0 0 12px 12px"><b>${safe(e.name)}님의 업무 목록 (${visible.length}건)</b><p class="srv-muted">업무를 누르면 설명·진행/보류 시간·댓글·첨부 사진을 조회할 수 있습니다. 담당자는 자신의 업무 상태를 변경할 수 있고, 모든 직원이 댓글을 작성할 수 있습니다.</p>${visible.length?visible.map(t=>`<div class="srv-line"><div class="srv-row" style="justify-content:space-between"><b>${safe(t.title)}</b><span class="srv-pill">${safe(status[t.status]||t.status)}</span></div><button type="button" class="alt srv-home-task-detail" data-task-id="${safe(t.id)}" data-employee="${safe(e.id)}">${homeSelectedTask===t.id?'상세 닫기':'상세·사진 보기'}</button>${homeSelectedTask===t.id?serverTaskDetails(t,true):''}</div>`).join(''):'<p class="srv-muted">표시할 업무가 없습니다.</p>'}</div>`;
+  html+=`<div class="srv-note" style="margin:0 0 12px 12px"><b>${safe(e.name)}님의 업무 목록 (${visible.length}건)</b><p class="srv-muted">업무를 누르면 설명·진행/보류 시간·댓글·첨부 사진을 조회할 수 있습니다. 담당자는 자신의 업무 상태를 변경할 수 있고, 모든 직원이 댓글을 작성할 수 있습니다.</p>${visible.length?visible.map(t=>`<div class="srv-line"><div class="srv-row" style="justify-content:space-between"><b>${safe(t.title)}</b><span class="srv-pill">${safe(status[t.status]||t.status)}</span></div>${serverClockHtml(t)}<button type="button" class="alt srv-home-task-detail" data-task-id="${safe(t.id)}" data-employee="${safe(e.id)}">${homeSelectedTask===t.id?'상세 닫기':'상세·사진 보기'}</button>${homeSelectedTask===t.id?serverTaskDetails(t,true):''}</div>`).join(''):'<p class="srv-muted">표시할 업무가 없습니다.</p>'}</div>`;
  }
 
  }
@@ -2847,44 +2858,72 @@ async function directoryUpdate(kind,values){
  directorySaving=false;dashboard();
 }
 
-// V6.6.5 서버 상태 변경 이력 기반 시간 계산. 동일 기기·브라우저 저장값 사용하지 않음.
-function taskClock(t, now=Date.now()){
- const entries=(records.taskHistory||[]).filter(h=>h.task_id===t.id&&h.changed_at).slice().sort((a,b)=>new Date(a.changed_at)-new Date(b.changed_at));
+// PostgREST can cap the rows returned by a single request.
+async function loadTaskHistory(taskId){
+ const data=[];
+ const pageSize=500;
+ try{
+  for(let offset=0;;){
+   let query=supa.from('jb_task_history').select('id,task_id,previous_status,new_status,changed_at');
+   if(taskId)query=query.eq('task_id',taskId);
+   const {data:page,error}=await query.order('changed_at').order('id').range(offset,offset+pageSize-1);
+   if(error)throw error;
+   if(!page.length)return {data};
+   data.push(...page);
+   offset+=page.length;
+  }
+ }catch(error){return {data:[],error}}
+}
+// Use only recorded transitions. Never infer a missing start or end from the task row.
+function taskClock(t, now=Date.now(), entries=records.taskHistory.get(t.id)||[], historyError=records.taskHistoryError){
+ if(historyError)return {valid:false,reason:'query'};
  const started=Date.parse(t.created_at||'');
- if(!Number.isFinite(started))return {running:0,holding:0,valid:false,mode:t.status};
- // 최초 생성은 예정으로 등록되는 기존 서버 정책을 적용.
- let last=started, state='planned', planned=0, running=0, holding=0;
- for(const h of entries){
-  const at=Date.parse(h.changed_at);
-  if(!Number.isFinite(at)||at<last)continue;
-  const dur=Math.max(0,at-last);
-  if(state==='planned')planned+=dur;
-  if(state==='in_progress')running+=dur;
-  if(state==='hold')holding+=dur;
-  state=h.new_status||state;last=at;
+ if(!Number.isFinite(started))return {valid:false,reason:'invalid'};
+ if(!entries.length&&t.status!=='planned')return {valid:false,reason:'missing'};
+ const totals={planned:0,in_progress:0,hold:0,completed:0};
+ let last=started,state='planned';
+ for(const [index,h] of entries.entries()){
+  const at=Date.parse(h.changed_at||'');
+  const initial=h.previous_status==null&&index===0&&h.new_status==='planned';
+  if(!Number.isFinite(at)||at<last||!Object.hasOwn(totals,h.new_status)||(!initial&&h.previous_status!==state)){
+   return {valid:false,reason:'invalid'};
+  }
+  totals[state]+=at-last;
+  state=h.new_status;
+  last=at;
  }
- const dur=Math.max(0,now-last);
- if(state==='planned')planned+=dur;
-  if(state==='in_progress')running+=dur;
- if(state==='hold')holding+=dur;
- const valid=entries.length>0||t.status==='planned';
- // 현재 상태가 변경 이력의 최종 상태와 다른 경우 데이터 불일치로 표기
- return {planned,running,holding,valid:valid&&state===t.status,mode:state};
+ if(state!==t.status)return {valid:false,reason:'mismatch'};
+ if(state!=='completed')totals[state]+=Math.max(0,now-last);
+ return {valid:true,planned:totals.planned,running:totals.in_progress,holding:totals.hold};
 }
 function durationLabel(ms){
  const sec=Math.floor(Math.max(0,ms)/1000),h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;
  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
-function serverClockHtml(t){
- const v=taskClock(t);
- if(!v.valid)return '<div class="srv-muted" style="margin-top:8px">⏱ 과거 상태 변경 이력이 부족해 누적 시간을 확정할 수 없습니다.</div>';
+function serverClockHtml(t, clock=taskClock(t)){
+ const v=clock;
+ if(!v.valid){
+  const messages={
+   query:'업무 상태 이력을 조회하지 못했습니다. 서버 새로고침으로 다시 시도하세요.',
+   missing:'저장된 업무 상태 변경 이력이 없어 누적 시간을 확인할 수 없습니다.',
+   invalid:'업무 상태 이력이 불완전해 누적 시간을 확인할 수 없습니다.',
+   mismatch:'업무 상태와 마지막 변경 이력이 일치하지 않습니다. 서버 새로고침으로 다시 확인하세요.'
+  };
+  return `<div class="srv-muted" style="margin-top:8px">⏱ ${messages[v.reason]}</div>`;
+ }
  return `<div class="srv-row srv-clock" data-clock-task="${safe(t.id)}" style="margin:8px 0;font-size:12px"><span>◷ 예정 누적 <b data-clock-planned>${durationLabel(v.planned)}</b></span><span>▶ 진행 누적 <b data-clock-running>${durationLabel(v.running)}</b></span><span>Ⅱ 보류 누적 <b data-clock-holding>${durationLabel(v.holding)}</b></span>${['planned','in_progress','hold'].includes(t.status)?'<span class="srv-pill">실시간 집계</span>':''}</div>`;
 }
 function refreshVisibleTaskClocks(){
- if(!profile||view!=='tasks')return;
+ if(!profile||!['home','tasks'].includes(view))return;
+ const now=Date.now();
+ const clocks=new Map();
  shell.querySelectorAll('[data-clock-task]').forEach(el=>{
-  const t=records.tasks.find(x=>x.id===el.dataset.clockTask);if(!t)return;
-  const v=taskClock(t);if(!v.valid)return;
+  const id=el.dataset.clockTask;
+  if(!clocks.has(id)){
+   const task=records.tasks.find(t=>t.id===id);
+   clocks.set(id,task&&taskClock(task,now));
+  }
+  const v=clocks.get(id);if(!v?.valid)return;
   const p=el.querySelector('[data-clock-planned]'),a=el.querySelector('[data-clock-running]'),b=el.querySelector('[data-clock-holding]');
   if(p)p.textContent=durationLabel(v.planned);
   if(a)a.textContent=durationLabel(v.running);if(b)b.textContent=durationLabel(v.holding);
@@ -3299,22 +3338,22 @@ async function exportCompletedTasksCsv(mode="month"){
 // V1.3 수정: 완료 업무 상세 조회 (읽기 전용, 서버에서 개별 조회)
 async function jbArchiveToggleDetail(id,forceOpen=false){
  if(archiveDetailId===id&&!forceOpen){archiveDetailId=null;archiveDetailRecord=null;archiveDetailImages=[];dashboard();return;}
- archiveDetailId=id;archiveDetailRecord=null;archiveDetailComments=[];archiveDetailHistory=[];archiveDetailImages=[];archiveDetailError='';archiveDetailLoading=true;dashboard();
+ archiveDetailId=id;archiveDetailRecord=null;archiveDetailComments=[];archiveDetailHistory={data:[]};archiveDetailImages=[];archiveDetailError='';archiveDetailLoading=true;dashboard();
  try{
   const taskResponse=await supa.from('jb_tasks').select('id,title,description,status,assignee_id,created_by,department_id,due_date,completed_at,created_at').eq('id',id).eq('status','completed').single();
   if(taskResponse.error)throw taskResponse.error;
   const [comments,history,images]=await Promise.all([
    supa.from('jb_task_comments').select('id,author_id,body,created_at').eq('task_id',id).order('created_at',{ascending:true}).limit(1000),
-   supa.from('jb_task_history').select('id,previous_status,new_status,changed_at').eq('task_id',id).order('changed_at',{ascending:true}).limit(5000),
+   loadTaskHistory(id),
    supa.from('jb_task_images').select('id,comment_id,storage_path,uploaded_at').eq('task_id',id).order('uploaded_at',{ascending:true}).limit(100)
   ]);
-  for(const res of [comments,history,images])if(res.error)throw res.error;
+  for(const res of [comments,images])if(res.error)throw res.error;
   const imgs=await Promise.all((images.data||[]).map(async x=>{
    const r=await supa.storage.from(TASK_PHOTO_BUCKET).createSignedUrl(x.storage_path,600);
    return {...x,url:r.error?'':r.data?.signedUrl||''};
   }));
   if(archiveDetailId!==id)return;
-  archiveDetailRecord=taskResponse.data;archiveDetailComments=comments.data||[];archiveDetailHistory=history.data||[];archiveDetailImages=imgs;
+  archiveDetailRecord=taskResponse.data;archiveDetailComments=comments.data||[];archiveDetailHistory=history;archiveDetailImages=imgs;
  }catch(e){if(archiveDetailId===id)archiveDetailError=String(e.message||e)}
  finally{if(archiveDetailId===id){archiveDetailLoading=false;if(view==='archive')dashboard()}}
 }
@@ -3325,18 +3364,15 @@ function jbArchiveDetails(t){
  const a=archiveDetailRecord;
  if(!a)return '<div class="srv-note">업무 정보를 확인할 수 없습니다.</div>';
  const person=id=>records.employees.find(e=>e.id===id)?.name||'직원 정보 확인 불가';
- const x=archiveDetailHistory.slice().sort((u,v)=>new Date(u.changed_at)-new Date(v.changed_at));
- let planned=0,running=0,holding=0,from=Date.parse(a.created_at||''),state='planned';
- for(const h of x){const at=Date.parse(h.changed_at||'');if(!Number.isFinite(at)||!Number.isFinite(from)||at<from)continue;
-  if(state==='planned')planned+=at-from;if(state==='in_progress')running+=at-from;if(state==='hold')holding+=at-from;state=h.new_status||state;from=at;}
- const completeAt=Date.parse(a.completed_at||'');if(Number.isFinite(from)&&Number.isFinite(completeAt)&&completeAt>from){if(state==='planned')planned+=completeAt-from;if(state==='in_progress')running+=completeAt-from;if(state==='hold')holding+=completeAt-from;}
+ const {data:x,error:historyError}=archiveDetailHistory;
+ const clock=taskClock(a,Date.now(),x,historyError||null);
  const when=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'-';
  return `<div class="srv-note jb-archive-details" style="margin-top:12px;background:#f3f8f5"><h4 style="margin:0 0 10px">완료 업무 상세 · 조회 전용</h4>
  <div class="srv-muted">지시자: ${safe(person(a.created_by))} · 담당자: ${safe(person(a.assignee_id))}</div>
  <p><b>업무 내용</b></p><p style="white-space:pre-wrap">${safe(a.description||'등록된 내용 없음')}</p>
  <p class="srv-muted">등록: ${safe(when(a.created_at))} · 완료: ${safe(when(a.completed_at))} · 완료 예정일: ${safe(a.due_date||'-')}</p>
- <div class="srv-row srv-clock"><span>◷ 예정 누적 <b>${safe(durationLabel(planned))}</b></span><span>▶ 진행 누적 <b>${safe(durationLabel(running))}</b></span><span>Ⅱ 보류 누적 <b>${safe(durationLabel(holding))}</b></span></div>
- <h4>진행 이력 (${x.length}건)</h4>${x.length?x.map(h=>`<div class="srv-line">${safe(when(h.changed_at))} · ${safe(status[h.previous_status]||h.previous_status||'최초')} → ${safe(status[h.new_status]||h.new_status||'-')}</div>`).join(''):'<p class="srv-muted">저장된 상태 변경 이력이 없습니다. 누적 시간은 이력에 따라 제한될 수 있습니다.</p>'}
+ ${serverClockHtml(a,clock)}
+ <h4>진행 이력</h4>${historyError?'':x.length?x.map(h=>`<div class="srv-line">${safe(when(h.changed_at))} · ${safe(status[h.previous_status]||h.previous_status||'최초')} → ${safe(status[h.new_status]||h.new_status||'-')}</div>`).join(''):'<p class="srv-muted">저장된 상태 변경 이력이 없습니다.</p>'}
  <h4>업무 보고 · 댓글 (${archiveDetailComments.length}건)</h4>${archiveDetailComments.length?archiveDetailComments.map(c=>`<div class="srv-line"><b>${safe(person(c.author_id))}</b> <span class="srv-muted">${safe(when(c.created_at))}</span><p style="white-space:pre-wrap">${safe(c.body||'')}</p>${jbCommentPhotoHtml(c.id,archiveDetailImages)}</div>`).join(''):'<p class="srv-muted">등록된 보고·댓글이 없습니다.</p>'}
  <h4>업무 등록 사진 (${archiveDetailImages.filter(im=>!im.comment_id).length}건)</h4>${archiveDetailImages.filter(im=>!im.comment_id).length?`<div class="srv-row" style="flex-wrap:wrap;gap:10px">${archiveDetailImages.filter(im=>!im.comment_id).map(im=>im.url?`<a href="${safe(im.url)}" target="_blank" rel="noopener noreferrer"><img src="${safe(im.url)}" alt="업무 첨부 사진" loading="lazy" style="width:130px;height:130px;object-fit:cover;border-radius:8px"></a>`:'<span class="srv-muted">사진 조회 권한 또는 링크 확인 필요</span>').join('')}</div>`:'<p class="srv-muted">첨부된 사진이 없습니다.</p>'}
  </div>`;
