@@ -1,0 +1,54 @@
+name: JB integrated UI and clock checks
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'JB_*/index.html'
+      - 'development/task-clock/**'
+      - '.github/workflows/jb-integration-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate embedded JavaScript syntax
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          class Extractor(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.in_script=False
+                  self.parts=[]
+                  self.scripts=[]
+              def handle_starttag(self,tag,attrs):
+                  if tag=='script' and not dict(attrs).get('src'):
+                      self.in_script=True
+                      self.parts=[]
+              def handle_data(self,data):
+                  if self.in_script:self.parts.append(data)
+              def handle_endtag(self,tag):
+                  if tag=='script' and self.in_script:
+                      self.scripts.append(''.join(self.parts))
+                      self.in_script=False
+          app=next(Path('.').glob('JB_*/index.html'))
+          p=Extractor()
+          p.feed(app.read_text(encoding='utf-8'))
+          if not p.scripts:raise SystemExit('No embedded scripts found')
+          for i,script in enumerate(p.scripts):
+              Path(f'/tmp/jb-inline-{i}.js').write_text(script,encoding='utf-8')
+          print('Embedded scripts:',len(p.scripts))
+          PY
+          for file in /tmp/jb-inline-*.js; do node --check "$file"; done
+      - name: Regression tests for task timer
+        run: node --test development/task-clock/unit.cjs
