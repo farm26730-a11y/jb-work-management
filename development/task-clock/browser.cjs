@@ -54,7 +54,7 @@ async function scenario(browser,{role,mobile,base=false,cap=false}){
  const history=base&&!cap?[]:[...dummy];
  if(base)history.push({id:'initial',task_id:task.id,previous_status:'planned',new_status:'in_progress',changed_at:iso(now-10000)});
  let historyError=false, omitHistory=false, staleStatus=false, rpcFailure=false, rpcDelay=0;
- let rpcCalls=0;
+ let rpcCalls=0, pendingTasksRead;
  const additional=[];
  const saveStatus=(target,status,changed_at)=>{
   if(target.status===status)return;
@@ -96,7 +96,16 @@ async function scenario(browser,{role,mobile,base=false,cap=false}){
   }
   rows=rows.filter(r=>Object.entries(filters).every(([k,v])=>k==='auth_user_id'||(Array.isArray(v)?v.includes(r[k]):r[k]===v)));
   if(single)return result(rows[0]||null);
-  return result(rows.slice(offset,offset+Math.min(limit,table==='jb_task_history'&&!base?400:5000)));
+  const selected=rows.slice(offset,offset+Math.min(limit,table==='jb_task_history'&&!base?400:5000));
+  if(table==='jb_tasks'&&pendingTasksRead){
+   const {started,release}=pendingTasksRead;
+   pendingTasksRead=null;
+   const snapshot=structuredClone(selected);
+   started();
+   await release;
+   return result(snapshot);
+  }
+  return result(selected);
  });
  await ctx.route('**/*',async route=>{
   const u=new URL(route.request().url());
@@ -275,6 +284,23 @@ async function scenario(browser,{role,mobile,base=false,cap=false}){
   await expect(secondSelect).toHaveValue('planned',options);
   assert.deepEqual(history.slice(-1).map(h=>[h.previous_status,h.new_status]),[['in_progress','planned']]);
   assert.equal(await olderClock.textContent(),held);
+  let signalStarted, releaseRead;
+  const readStarted=new Promise(resolve=>{signalStarted=resolve;});
+  const release=new Promise(resolve=>{releaseRead=resolve;});
+  pendingTasksRead={started:signalStarted,release};
+  try{
+   await tab('inbox');
+   await page.locator('#srvInboxReload').click();
+   await readStarted;
+   await tab('tasks');
+   await secondSelect.selectOption('in_progress');
+   await expect(secondSelect).toHaveValue('in_progress',options);
+   await expect(secondSelect).toBeEnabled(options);
+  }finally{releaseRead();}
+  await page.waitForTimeout(1300);
+  await expect(secondSelect).toHaveValue('in_progress',options);
+  await expect(page.locator('[data-clock-task=second] [data-clock-running]')).toBeVisible(options);
+
  }
  assert.deepEqual(errors,[]);
  console.log(role,mobile?'mobile':'desktop','PASS',running,holding,finished);

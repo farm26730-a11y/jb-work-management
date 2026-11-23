@@ -1233,6 +1233,7 @@ async function loadProfile(){
  let {data:{user},error:authError}=await supa.auth.getUser();if(authError||!user){if(authError){login('연결 오류로 로그인 상태를 확인하지 못했습니다. 인터넷 연결을 확인한 후 다시 시도해 주세요.');return;}login('인증 세션이 없습니다. 로그인하세요.');return;}
  const {data,error}=await supa.from('jb_employees').select('id,name,position,app_role,department_id,active').eq('auth_user_id',user.id).eq('active',true).maybeSingle();
  if(error){login('직원 정보 조회에 실패했습니다. 네트워크 및 접근 권한을 확인하세요. 로그인 세션은 보존됩니다.');return;}if(!data){profile=null;login('이메일 계정 인증은 완료되었지만 아직 직원관리에서 계정 연결·활성화가 필요합니다. 대표님 또는 부서장에게 요청하세요.');return;}
+ appliedTaskSnapshot=++taskSnapshotSerial;
  records.tasks=[];records.taskHistory=new Map();records.taskHistoryError=null;
  profile=data;jbAcctOpen=false;jbAcctState=null;jbAcctMsg='';repeatTemplates=[];repeatTemplatesLoaded=false;await loadData();await loadRepeatTemplates();if(['owner','manager'].includes(profile?.app_role))void jbAcctReload(true);
 }
@@ -1270,6 +1271,7 @@ async function jbVerifyCurrentEmployee(){
  if(identityChanged){
   // 과거 역할에서 불러온 민감한 관리 목록을 먼저 비웁니다.
   records.managedEmployees=[];records.employeeRoles=[];records.leaves=[];
+  appliedTaskSnapshot=++taskSnapshotSerial;
   records.tasks=[];records.taskHistory=new Map();records.taskHistoryError=null;
   if(!['owner','manager'].includes(me.app_role)&&['employees'].includes(view))view='home';
  }
@@ -1300,9 +1302,11 @@ function jbHomeCanAutoRefresh(){
 setInterval(()=>{if(jbHomeCanAutoRefresh()&&!jbSessionCheckBusy)void loadData()},65000);
 // V31: 휴무 승인 및 알림 화면도 일정 간격으로 서버에서 새 요청을 읽는다.
 setInterval(()=>{if(profile&&['inbox','leaves'].includes(view)&&!document.hidden&&!busy&&!leaveSaving&&!commentSubmitting&&!jbSessionCheckBusy){const focused=document.activeElement;if(!focused||!shell.contains(focused)||!focused.matches('input,textarea,select,[contenteditable="true"]'))void loadData();}},45000);
+let taskSnapshotSerial=0,appliedTaskSnapshot=0;
 async function loadData(){
  // 서버에서 권한이 바뀐 직원이 과거 관리자 화면을 계속 보지 않게 차단
  if(!await jbVerifyCurrentEmployee())return;
+ const snapshot=++taskSnapshotSerial;
  busy=true;err='';dashboard();
  const clockSync=syncTaskClock();
  try{
@@ -1322,6 +1326,9 @@ async function loadData(){
  }
  const history=await loadTaskHistories(tasksBatch);
  await clockSync;
+ // A slow refresh must not restore task states superseded by a later response.
+ if(!profile||snapshot<appliedTaskSnapshot)return;
+ appliedTaskSnapshot=snapshot;
  records.tasks=tasksBatch;
  records.taskHistory=history.byTask;
  records.taskHistoryError=history.error;
